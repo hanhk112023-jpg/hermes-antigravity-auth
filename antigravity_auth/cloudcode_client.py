@@ -11,7 +11,11 @@ import httpx
 from .constants import ANTIGRAVITY_DEFAULT_PROJECT_ID
 from .constants import ide_user_agent
 from .endpoints import select_endpoint
-from .transform.envelope import build_antigravity_envelope, build_antigravity_url
+from .transform.envelope import (
+  build_antigravity_envelope,
+  build_antigravity_url,
+  resolve_model_for_header_style,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -241,16 +245,18 @@ class AntigravityCloudCodeClient:
       stop=stop,
       thinking_config=thinking_config,
     )
+    wire_model = resolve_model_for_header_style(model, "gemini-cli")
     envelope = build_antigravity_envelope(
       request_payload,
-      model=model,
+      model=wire_model,
       project_id=resolve_project_id(),
+      header_style="gemini-cli",
     )
 
     if stream:
-      return self._stream_completion(native, model=model, envelope=envelope, timeout=timeout)
+      return self._stream_completion(native, model=wire_model, envelope=envelope, timeout=timeout)
 
-    url = build_antigravity_url(self._endpoint_for_request(), model, action="generateContent", streaming=False)
+    url = build_antigravity_url(self._endpoint_for_request(), wire_model, action="generateContent", streaming=False)
     response = self._http.post(
       url,
       json=envelope,

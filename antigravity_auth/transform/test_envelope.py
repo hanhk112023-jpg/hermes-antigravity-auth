@@ -458,7 +458,7 @@ class TestBuildAntigravityEnvelope(unittest.TestCase):
             header_style="antigravity",
         )
         self.assertEqual("test-project", envelope["project"])
-        self.assertEqual("antigravity-gemini-3-pro", envelope["model"])
+        self.assertEqual("gemini-3-pro-preview", envelope["model"])
 
     def test_gemini_cli_style_no_request_type(self):
         envelope = build_antigravity_envelope(

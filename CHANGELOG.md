@@ -2,6 +2,14 @@
 
 All notable changes to hermes-antigravity-auth.
 
+## [1.9.2] — 2026-10-22
+
+### Fixed
+- **Google Antigravity 404 (NOT_FOUND) Resolution**: Fixed `gemini-3.8-flash` mapping in `MODEL_NAME_MAP` and `cloudcode_client.py` to route correctly to backend wire model `gemini-3.8-flash-tiered`.
+- **Wire Model Resolution in Envelopes**: `build_antigravity_envelope` and `cloudcode_client.py` now automatically resolve canonical model aliases (`gemini-3.8-flash`, `claude-opus-4-6`, `gpt-oss-120b`) to their respective Google backend wire endpoints.
+- **Claude Streaming Request Body Sync**: Resolved `LocalProtocolError: Too little data for declared Content-Length` during Claude streaming requests by resetting `request.stream = httpx.ByteStream(content)` after header/body modification in `_replace_request_json`.
+- **Canonical Model Picker Enforcement**: Sanitized cached provider catalog in `provider_models_cache.json` and ensured model pickers display only clean canonical models.
+
 ## [1.9.1] — 2026-10-22
 
 ### Added

@@ -177,6 +177,7 @@ def _is_antigravity_response_request(response: httpx.Response) -> bool:
 def _replace_request_json(request: httpx.Request, body: dict[str, Any]) -> None:
   content = json.dumps(body, separators=(",", ":")).encode("utf-8")
   request._content = content
+  request.stream = httpx.ByteStream(content)
   request.headers["Content-Length"] = str(len(content))
 
 

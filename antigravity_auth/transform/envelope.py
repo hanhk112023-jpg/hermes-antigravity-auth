@@ -73,12 +73,12 @@ MODEL_NAME_MAP: dict[str, str] = {
     "antigravity-gemini-4-argon-high": "gemini-4-argon-high",
 
     # Gemini 3.8 Flash
-    "gemini-3.8-flash": "gemini-3.8-flash",
+    "gemini-3.8-flash": "gemini-3.8-flash-tiered",
     "gemini-3.8-flash-low": "gemini-3.8-flash-low",
     "gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
     "gemini-3.8-flash-high": "gemini-3.8-flash-high",
     "gemini-3.8-flash-tiered": "gemini-3.8-flash-tiered",
-    "antigravity-gemini-3.8-flash": "gemini-3.8-flash",
+    "antigravity-gemini-3.8-flash": "gemini-3.8-flash-tiered",
     "antigravity-gemini-3.8-flash-low": "gemini-3.8-flash-low",
     "antigravity-gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
     "antigravity-gemini-3.8-flash-high": "gemini-3.8-flash-high",
@@ -320,9 +320,10 @@ def build_antigravity_envelope(
     if thinking_wire is not None and "thinkingConfig" not in gen_config:
       gen_config["thinkingConfig"] = thinking_wire
 
+  wire_model = resolve_model_for_header_style(model, header_style)
   envelope: dict[str, Any] = {
       "project": project_id,
-      "model": model,
+      "model": wire_model,
       "request": request_payload,
   }
 
