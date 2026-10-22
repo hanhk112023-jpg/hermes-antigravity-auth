@@ -7,6 +7,8 @@ from .envelope import (
   extract_model_from_url,
   generate_synthetic_project_id,
   is_antigravity_request,
+  normalize_reasoning_effort,
+  resolve_model_for_effort,
   resolve_model_for_header_style,
 )
 from .messages import (
@@ -54,7 +56,9 @@ __all__ = [
   "is_gemini_model",
   "is_gpt_oss_model",
   "is_thinking_part",
+  "normalize_reasoning_effort",
   "parse_data_url",
+  "resolve_model_for_effort",
   "resolve_model_for_header_style",
   "rewrite_preview_access_error",
   "sanitize_thinking_part",

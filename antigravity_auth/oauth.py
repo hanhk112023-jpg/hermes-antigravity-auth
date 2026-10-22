@@ -4,7 +4,6 @@ import hashlib
 import base64
 import json
 import time
-import sys
 import traceback
 import urllib.request
 import urllib.error
@@ -157,6 +156,22 @@ def make_get_request(url: str, headers: dict, timeout: int = 10) -> tuple[int, b
     except Exception as e:
         return 500, str(e).encode("utf-8")
 
+def load_code_assist_payload() -> dict:
+    """Build discovery metadata accepted across desktop platforms.
+
+    The plugin runs inside Hermes, not inside a matching Antigravity desktop
+    binary. Reporting the host OS as a desktop platform can make discovery
+    depend on the machine running Hermes, so use the portable enum value.
+    """
+    return {
+        "metadata": {
+            "ideType": "ANTIGRAVITY",
+            "platform": "PLATFORM_UNSPECIFIED",
+            "pluginType": "GEMINI",
+        }
+    }
+
+
 def fetch_project_id(access_token: str) -> str:
     load_headers = {
         "Authorization": f"Bearer {access_token}",
@@ -174,13 +189,7 @@ def fetch_project_id(access_token: str) -> str:
     for base_endpoint in load_endpoints:
         try:
             url = f"{base_endpoint}/v1internal:loadCodeAssist"
-            payload = {
-                "metadata": {
-                    "ideType": "ANTIGRAVITY",
-                    "platform": "WINDOWS" if sys.platform == "win32" else "MACOS",
-                    "pluginType": "GEMINI",
-                }
-            }
+            payload = load_code_assist_payload()
             data = json.dumps(payload).encode("utf-8")
             status, resp_bytes = make_post_request(url, load_headers, data, timeout=10)
             

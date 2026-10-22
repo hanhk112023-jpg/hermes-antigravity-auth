@@ -1317,10 +1317,6 @@ def _send_with_antigravity_retry(original_send, request: httpx.Request, *args: A
     response = original_send(request, *args, **kwargs)
     if not _response_is_retryable(response):
         return response
-    if kwargs.get("stream"):
-        response.request.extensions["antigravity_retry_skipped_reason"] = "streaming response"
-        logger.warning("Antigravity request got HTTP %s; automatic retry skipped for streaming response", response.status_code)
-        return response
     if not _request_body_is_replayable(response.request):
         response.request.extensions["antigravity_retry_skipped_reason"] = "request body is not replayable"
         logger.warning("Antigravity request got HTTP %s; automatic retry skipped because body is not replayable", response.status_code)

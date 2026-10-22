@@ -45,7 +45,16 @@ class TestAntigravityContextAndDiscovery(unittest.TestCase):
         self.assertEqual(antigravity.get_max_tokens("gemini-3.8-flash"), 65_536)
         self.assertEqual(antigravity.get_max_tokens("claude-sonnet-4-6"), 64_000)
         self.assertEqual(antigravity.get_max_tokens("gemini-3.1-flash-image"), 4_096)
+        self.assertEqual(antigravity.get_max_tokens("gpt-oss-120b"), 32_768)
 
+    def test_reasoning_config_reaches_cloudcode_client(self):
+        extra, top_level = antigravity.build_api_kwargs_extras(
+            reasoning_config={"enabled": True, "effort": "high"},
+            supports_reasoning=True,
+            model="gemini-3.8-flash",
+        )
+        self.assertEqual(extra, {"reasoning": {"enabled": True, "effort": "high"}})
+        self.assertEqual(top_level, {})
 
 if __name__ == "__main__":
     unittest.main()

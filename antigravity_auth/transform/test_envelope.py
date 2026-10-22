@@ -7,6 +7,7 @@ import os
 import sys
 import types
 import unittest
+from unittest.mock import patch
 from typing import Any
 
 from antigravity_auth.transform.envelope import (
@@ -17,6 +18,8 @@ from antigravity_auth.transform.envelope import (
     extract_model_from_url,
     generate_synthetic_project_id,
     is_antigravity_request,
+    normalize_reasoning_effort,
+    resolve_model_for_effort,
     resolve_model_for_header_style,
 )
 
@@ -503,6 +506,39 @@ class TestBuildAntigravityEnvelope(unittest.TestCase):
             header_style="antigravity",
         )
         self.assertEqual("antigravity", envelope["userAgent"])
+
+
+class TestReasoningModelRouting(unittest.TestCase):
+    def test_effort_uses_one_static_wire_model_and_preserves_variants(self):
+        self.assertEqual(resolve_model_for_effort("gemini-3.8-flash", "high"), "gemini-3.8-flash-high")
+        self.assertEqual(resolve_model_for_effort("gemini-3.5-flash", "high"), "gemini-3-flash-agent")
+        self.assertEqual(resolve_model_for_effort("gemini-3.5-flash", "max"), "gemini-3-flash-agent")
+        self.assertEqual(resolve_model_for_effort("gemini-3.5-flash", "medium"), "gemini-3.5-flash-low")
+        stale_catalog = {"models": {"gemini-3.8-flash": {"displayName": "Gemini 3.8 Flash"}}}
+        with patch("antigravity_auth.discovery.load_cached_catalog", return_value=stale_catalog):
+            self.assertEqual(resolve_model_for_effort("gemini-3.8-flash", "off"), "gemini-3.8-flash-tiered")
+        self.assertEqual(
+            resolve_model_for_effort("gemini-3.8-flash-low", "high"),
+            "gemini-3.8-flash-low",
+        )
+
+    def test_reasoning_shapes_normalize_without_losing_disabled_state(self):
+        self.assertIsNone(normalize_reasoning_effort(None))
+        self.assertEqual(normalize_reasoning_effort({"enabled": True}), "medium")
+        self.assertEqual(normalize_reasoning_effort({"enabled": False, "effort": "high"}), "off")
+        self.assertEqual(normalize_reasoning_effort("auto"), "medium")
+        self.assertEqual(normalize_reasoning_effort("high"), "high")
+        self.assertEqual(normalize_reasoning_effort("max"), "xhigh")
+        self.assertEqual(normalize_reasoning_effort("ultra"), "xhigh")
+
+    def test_unknown_public_model_uses_cached_catalog_without_network(self):
+        catalog = {"models": {
+            "custom-model-low": {"displayName": "Custom (Low)"},
+            "custom-model-high": {"displayName": "Custom (High)"},
+        }}
+        with patch("antigravity_auth.discovery.load_cached_catalog", return_value=catalog):
+            self.assertEqual(resolve_model_for_effort("custom-model", "high"), "custom-model-high")
+            self.assertEqual(resolve_model_for_effort("custom-model", "low"), "custom-model-low")
 
 
 class TestIsAntigravityRequest(unittest.TestCase):

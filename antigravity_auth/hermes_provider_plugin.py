@@ -182,6 +182,19 @@ class AntigravityProfile(ProviderProfile):
       return 131_072  # 128k tokens context for GPT-OSS models
     return 131_072
 
+  def build_api_kwargs_extras(
+    self,
+    *,
+    reasoning_config: dict | None = None,
+    **context: Any,
+  ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Project Hermes reasoning onto the OpenAI-shaped Cloud Code facade."""
+    if not isinstance(reasoning_config, dict):
+      return {}, {}
+    # The registered-provider transport merges this into extra_body. The
+    # Cloud Code client consumes it for both wire-model routing and thinking.
+    return {"reasoning": dict(reasoning_config)}, {}
+
   def get_max_tokens(self, model: str | None) -> int | None:
     """Return max completion tokens for model."""
     m = (model or "").lower()
@@ -191,6 +204,8 @@ class AntigravityProfile(ProviderProfile):
       return 64_000 if "4-6" in m else 8_192
     if "argon" in m or "gemini" in m:
       return 65_536
+    if "gpt-oss" in m:
+      return 32_768
     return 8_192
 
   def fetch_account_usage(self, base_url: str = "", api_key: str = "") -> Any:
@@ -321,6 +336,39 @@ antigravity = AntigravityProfile(
   fallback_models=ANTIGRAVITY_MODELS,
   default_headers={},
 )
+
+
+def _register_picker_overlay() -> bool:
+  """Register the Hermes 0.21 picker overlay when that API exists.
+
+  Older Hermes versions have neither the table nor the frozen overlay class;
+  they continue through the legacy picker patch below. Registration is
+  idempotent so plugin reloads do not replace an existing provider entry.
+  """
+  try:
+    import hermes_cli.providers as providers
+  except Exception:
+    return False
+  table = getattr(providers, "HERMES_OVERLAYS", None)
+  overlay_type = getattr(providers, "HermesOverlay", None)
+  if not isinstance(table, dict) or not callable(overlay_type):
+    return False
+  if "google-gemini-cli" in table:
+    return True
+  try:
+    table["google-gemini-cli"] = overlay_type(
+      transport="openai_chat",
+      is_aggregator=False,
+      auth_type="oauth_external",
+      extra_env_vars=(),
+      base_url_override="cloudcode-pa://google",
+      base_url_env_var="",
+    )
+  except Exception as exc:
+    _record("WARN", "model picker overlay", f"could not register Hermes overlay: {exc}")
+    return False
+  return True
+
 
 def _patch_hermes_model_picker() -> None:
   """Expose Antigravity branding in Hermes' built-in model pickers.
@@ -489,6 +537,7 @@ except Exception as exc:
     f"register_provider failed for google-gemini-cli: {exc}",
     "Run hermes antigravity doctor inside Hermes and verify provider plugin compatibility.",
   )
+_register_picker_overlay()
 _record_hermes_feature_diagnostics()
 _patch_hermes_model_picker()
 

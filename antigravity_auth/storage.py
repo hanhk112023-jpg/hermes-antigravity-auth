@@ -9,20 +9,59 @@ import threading
 from pathlib import Path
 from typing import Any, Callable
 
-# Try to dynamically import the lock from hermes_cli.auth, fallback to a local Thread Lock
-try:
-    from hermes_cli.auth import _auth_store_lock as _hermes_lock
-    if hasattr(_hermes_lock, "__enter__"):
-        _auth_store_lock = _hermes_lock
-    else:
-        _auth_store_lock = threading.Lock()
-except ImportError:
-    _auth_store_lock = threading.Lock()
+# Resolve Hermes' auth lock lazily. Importing it during provider discovery can
+# snapshot a partially initialized provider registry. Tests and embedders may
+# still replace ``_auth_store_lock`` with a direct manager or a factory.
+_local_auth_store_lock = threading.RLock()
+_auth_store_lock = None
+_auth_store_lock_resolve_guard = threading.Lock()
 
 _accounts_store_lock = threading.RLock()
 _process_lock_warning_emitted = False
 _process_lock_warning_guard = threading.Lock()
 logger = logging.getLogger(__name__)
+
+
+def _resolve_auth_store_lock():
+    """Return Hermes' lock without importing Hermes during module discovery."""
+    global _auth_store_lock
+    if _auth_store_lock is not None:
+        return _auth_store_lock
+    with _auth_store_lock_resolve_guard:
+        if _auth_store_lock is None:
+            try:
+                from hermes_cli.auth import _auth_store_lock as hermes_lock
+                _auth_store_lock = hermes_lock
+            except ImportError:
+                _auth_store_lock = _local_auth_store_lock
+    return _auth_store_lock
+
+
+def _is_auth_lock_factory(lock) -> bool:
+    """Modern Hermes exposes a contextmanager factory; old locks are managers."""
+    return callable(lock) and not hasattr(lock, "__enter__")
+
+
+@contextlib.contextmanager
+def _auth_store_transaction(path: Path, *, write: bool):
+    """Enter exactly one cross-process lock owner for an auth-store operation.
+
+    Hermes' callable factory already owns the target path's process lock, so
+    adding ``_process_file_lock`` around it would deadlock. Direct managers and
+    the standalone fallback retain the plugin's process lock for writes.
+    """
+    lock = _resolve_auth_store_lock()
+    if _is_auth_lock_factory(lock):
+        with lock(target_path=path):
+            yield
+        return
+    if write:
+        with _process_file_lock(path.with_suffix(".lock")):
+            with lock:
+                yield
+        return
+    with lock:
+        yield
 
 
 def _secret_file_opener(path: str, flags: int) -> int:
@@ -76,6 +115,11 @@ def _acquire_process_file_lock(lock_file: Any, lock_path: Path) -> Callable[[], 
     """
     try:
         import fcntl
+    except ImportError as fcntl_exc:
+        fcntl_reason = fcntl_exc
+    else:
+        # An available backend that rejects acquisition must fail closed. A
+        # fallback here would allow an unlocked read-modify-write of auth data.
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         released = False
 
@@ -90,12 +134,10 @@ def _acquire_process_file_lock(lock_file: Any, lock_path: Path) -> Callable[[], 
                 pass
 
         return unlock_fcntl
-    except Exception as fcntl_exc:
-        fcntl_reason = fcntl_exc
 
     try:
         import msvcrt
-    except Exception as msvcrt_exc:
+    except ImportError as msvcrt_exc:
         _warn_process_lock_unavailable_once(
             lock_path,
             f"fcntl unavailable ({fcntl_reason}); msvcrt unavailable ({msvcrt_exc})",
@@ -438,57 +480,56 @@ def sync_token_to_auth_json(
     path = get_auth_json_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    with _process_file_lock(path.with_suffix(".lock")):
-        with _auth_store_lock:
-            current_epoch_ms = int(time.time() * 1000)
-            tmp_path = path.with_suffix(f".json.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    with _auth_store_transaction(path, write=True):
+        current_epoch_ms = int(time.time() * 1000)
+        tmp_path = path.with_suffix(f".json.{os.getpid()}.{secrets.token_hex(4)}.tmp")
 
-            data = {
-                "providers": {},
-                "active_provider": ""
-            }
+        data = {
+            "providers": {},
+            "active_provider": ""
+        }
 
-            if path.exists():
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    parsed = json.load(f)
+                    if isinstance(parsed, dict):
+                        data = parsed
+            except Exception:
+                pass
+
+        if "providers" not in data or not isinstance(data["providers"], dict):
+            data["providers"] = {}
+
+        data["providers"]["antigravity"] = {
+            "tokens": {
+                "access_token": access_token,
+                "refresh_token": refresh_token
+            },
+            "project_id": project_id,
+            "email": email,
+            "last_refresh": current_epoch_ms
+        }
+        # Also register under google-gemini-cli so the /model picker detects it
+        data["providers"]["google-gemini-cli"] = data["providers"]["antigravity"]
+
+        if set_active:
+            data["active_provider"] = "google-gemini-cli"
+        elif not access_token and not refresh_token and data.get("active_provider") in ("antigravity", "google-gemini-cli"):
+            data["active_provider"] = ""
+
+        try:
+            with open(tmp_path, "w", encoding="utf-8", opener=_secret_file_opener) as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_path, path)
+            os.chmod(path, 0o600)
+        except Exception as e:
+            if tmp_path.exists():
                 try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        parsed = json.load(f)
-                        if isinstance(parsed, dict):
-                            data = parsed
+                    tmp_path.unlink()
                 except Exception:
                     pass
-
-            if "providers" not in data or not isinstance(data["providers"], dict):
-                data["providers"] = {}
-
-            data["providers"]["antigravity"] = {
-                "tokens": {
-                    "access_token": access_token,
-                    "refresh_token": refresh_token
-                },
-                "project_id": project_id,
-                "email": email,
-                "last_refresh": current_epoch_ms
-            }
-            # Also register under google-gemini-cli so the /model picker detects it
-            data["providers"]["google-gemini-cli"] = data["providers"]["antigravity"]
-
-            if set_active:
-                data["active_provider"] = "google-gemini-cli"
-            elif not access_token and not refresh_token and data.get("active_provider") in ("antigravity", "google-gemini-cli"):
-                data["active_provider"] = ""
-
-            try:
-                with open(tmp_path, "w", encoding="utf-8", opener=_secret_file_opener) as f:
-                    json.dump(data, f, indent=2)
-                os.replace(tmp_path, path)
-                os.chmod(path, 0o600)
-            except Exception as e:
-                if tmp_path.exists():
-                    try:
-                        tmp_path.unlink()
-                    except Exception:
-                        pass
-                raise e
+            raise e
 
 
 def get_active_token_from_auth_json() -> dict[str, str]:
@@ -506,7 +547,7 @@ def get_active_token_from_auth_json() -> dict[str, str]:
     if not path.exists():
         return default_res
 
-    with _auth_store_lock:
+    with _auth_store_transaction(path, write=False):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)

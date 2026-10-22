@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
+import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -24,6 +27,16 @@ CATALOG_CACHE_FILE = os.path.expanduser("~/.hermes/antigravity-catalog.json")
 
 _MEM_CATALOG_CACHE: Dict[str, Any] = {}
 _MEM_CATALOG_CACHE_TIME: float = 0.0
+_MEM_CATALOG_CACHE_PATH: str | None = None
+_MEM_CATALOG_CACHE_LOCK = threading.RLock()
+
+
+def _catalog_cache_path() -> Path:
+    """Resolve the catalog beside the active Hermes home, not import-time cwd."""
+    home = os.getenv("HERMES_HOME", "").strip()
+    if home:
+        return Path(home).expanduser().resolve() / "antigravity-catalog.json"
+    return Path(CATALOG_CACHE_FILE).expanduser()
 
 
 def get_endpoint_candidates() -> List[str]:
@@ -126,38 +139,71 @@ def fetch_user_quota_summary(
 
 
 def load_cached_catalog() -> Optional[Dict[str, Any]]:
-    """Load cached model catalog from disk or memory."""
-    global _MEM_CATALOG_CACHE, _MEM_CATALOG_CACHE_TIME
+    """Load a fresh catalog from the active home, atomically written on disk."""
+    global _MEM_CATALOG_CACHE, _MEM_CATALOG_CACHE_TIME, _MEM_CATALOG_CACHE_PATH
     now = time.time()
-    if _MEM_CATALOG_CACHE and (now - _MEM_CATALOG_CACHE_TIME < DEFAULT_CATALOG_REFRESH_INTERVAL_SECONDS):
-        return _MEM_CATALOG_CACHE
+    path = _catalog_cache_path()
+    path_key = os.fspath(path)
+    with _MEM_CATALOG_CACHE_LOCK:
+        if _MEM_CATALOG_CACHE_PATH != path_key:
+            _MEM_CATALOG_CACHE = {}
+            _MEM_CATALOG_CACHE_TIME = 0.0
+            _MEM_CATALOG_CACHE_PATH = path_key
+        if _MEM_CATALOG_CACHE and (now - _MEM_CATALOG_CACHE_TIME < DEFAULT_CATALOG_REFRESH_INTERVAL_SECONDS):
+            return _MEM_CATALOG_CACHE
 
-    if os.path.isfile(CATALOG_CACHE_FILE):
-        try:
-            with open(CATALOG_CACHE_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                cached_at = data.get("fetched_at", 0)
-                if now - cached_at < DEFAULT_CATALOG_REFRESH_INTERVAL_SECONDS:
-                    _MEM_CATALOG_CACHE = data
-                    _MEM_CATALOG_CACHE_TIME = cached_at
-                    return data
-        except Exception:
-            pass
-    return None
+        if path.is_file():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    cached_at = data.get("fetched_at", 0)
+                    if now - cached_at < DEFAULT_CATALOG_REFRESH_INTERVAL_SECONDS:
+                        _MEM_CATALOG_CACHE = data
+                        _MEM_CATALOG_CACHE_TIME = cached_at
+                        return data
+            except Exception:
+                pass
+        return None
 
 
 def save_cached_catalog(catalog_data: Dict[str, Any]) -> None:
-    """Save model catalog to disk and memory."""
-    global _MEM_CATALOG_CACHE, _MEM_CATALOG_CACHE_TIME
-    _MEM_CATALOG_CACHE = catalog_data
-    _MEM_CATALOG_CACHE_TIME = time.time()
-
-    os.makedirs(os.path.dirname(CATALOG_CACHE_FILE), exist_ok=True)
-    try:
-        with open(CATALOG_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(catalog_data, f, indent=2)
-    except Exception:
-        pass
+    """Atomically save a catalog without exposing partial JSON to readers."""
+    global _MEM_CATALOG_CACHE, _MEM_CATALOG_CACHE_TIME, _MEM_CATALOG_CACHE_PATH
+    path = _catalog_cache_path()
+    path_key = os.fspath(path)
+    with _MEM_CATALOG_CACHE_LOCK:
+        temp_path: Path | None = None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_path = Path(handle.name)
+                json.dump(catalog_data, handle, indent=2)
+                handle.flush()
+            try:
+                os.chmod(temp_path, 0o600)
+            except Exception:
+                pass
+            os.replace(temp_path, path)
+            temp_path = None
+        except Exception:
+            # A failed write must not replace the last known-good memory or
+            # disk catalog. Best-effort cleanup also handles interrupted writes.
+            if temp_path is not None:
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    pass
+            return
+        _MEM_CATALOG_CACHE = catalog_data
+        _MEM_CATALOG_CACHE_TIME = time.time()
+        _MEM_CATALOG_CACHE_PATH = path_key
 
 
 def format_reset_time(iso_str: Optional[str]) -> str:

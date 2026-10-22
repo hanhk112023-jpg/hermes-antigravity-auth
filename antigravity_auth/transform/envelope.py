@@ -194,6 +194,102 @@ def resolve_model_for_header_style(model: str, header_style: HeaderStyle) -> str
   return mapped
 
 
+def normalize_reasoning_effort(reasoning: Any) -> str | None:
+    """Normalize Hermes/OpenAI reasoning shapes to one routing effort.
+
+    ``None`` means that the caller did not request reasoning. Explicitly
+    disabled reasoning is different and returns ``off`` so the wire thinking
+    config can still be emitted where the backend requires it.
+    """
+    if reasoning is None:
+        return None
+    value = reasoning
+    if isinstance(reasoning, dict):
+        if reasoning.get("enabled") is False:
+            return "off"
+        value = reasoning.get("effort", reasoning.get("reasoning_effort"))
+        if value is None:
+            return "medium" if reasoning.get("enabled") is True else "off"
+    effort = str(value or "").strip().lower()
+    if effort in ("", "off", "none", "false", "0"):
+        return "off"
+    if effort in ("auto", "default"):
+        return "medium"
+    if effort in ("xhigh", "max", "ultra"):
+        # Antigravity has no separate max/ultra wire level; use its highest
+        # supported thinking tier instead of weakening the request to medium.
+        return "xhigh"
+    if effort in ("minimal", "low", "medium", "high"):
+        return effort
+    # Preserve the historical safe behavior for an unknown effort: use the
+    # normal medium route rather than accidentally disabling reasoning.
+    return "medium"
+
+
+def _has_explicit_runtime_variant(model: str) -> bool:
+    lower = model.lower()
+    if lower.startswith("antigravity-"):
+        lower = lower[len("antigravity-"):]
+    return lower.endswith((
+        "-extra-low", "-minimal", "-low", "-medium", "-high",
+        "-xhigh", "-tiered", "-thinking", "-agent",
+    ))
+
+
+def resolve_model_for_effort(model: str, effort: str | None = None) -> str:
+    """Resolve a public model and optional reasoning effort to a wire model.
+
+    Static aliases remain authoritative for known families. A cached dynamic
+    catalog is consulted only for otherwise unknown public IDs; resolving a
+    request never performs network I/O.
+    """
+    default = resolve_model_for_header_style(model, "antigravity")
+    if effort is None or _has_explicit_runtime_variant(model):
+        return default
+    effort = normalize_reasoning_effort(effort)
+    if effort is None:
+        return default
+
+    canonical = model.lower()
+    if canonical.startswith("antigravity-"):
+        canonical = canonical[len("antigravity-"):]
+    effort = effort.lower()
+    if canonical in MODEL_NAME_MAP:
+        if effort == "off":
+            return default
+        candidates = {
+            "minimal": (f"{canonical}-minimal", f"{canonical}-extra-low", f"{canonical}-low"),
+            "low": (f"{canonical}-low", f"{canonical}-minimal", f"{canonical}-medium"),
+            "medium": (f"{canonical}-medium", f"{canonical}-low", f"{canonical}-high"),
+            "high": (f"{canonical}-high", f"{canonical}-medium", f"{canonical}-low"),
+            "xhigh": (f"{canonical}-xhigh", f"{canonical}-high", f"{canonical}-medium"),
+        }.get(effort, ())
+        for candidate in candidates:
+            if candidate in MODEL_NAME_MAP:
+                return MODEL_NAME_MAP[candidate]
+        return default
+
+    # Custom/public models can be grouped from the last discovery response.
+    # Keep this best-effort: a malformed or stale cache must not break chat.
+    try:
+        from ..discovery import load_cached_catalog
+        from ..grouping import group_antigravity_catalog
+
+        catalog = load_cached_catalog()
+        raw_models = catalog.get("models") if isinstance(catalog, dict) else None
+        if isinstance(raw_models, dict):
+            for group in group_antigravity_catalog(raw_models, include_all=True):
+                if group.public_id.lower() != canonical:
+                    continue
+                routing = group.get_routing_map()
+                selected = routing.get(effort) or routing.get("default")
+                if selected:
+                    return selected
+    except Exception:
+        pass
+    return default
+
+
 def get_thinking_config(model_id: str, effort: str | None = None) -> dict[str, Any] | None:
   """Compute wire thinkingConfig matching Rahularya01/pi-antigravity specification.
 

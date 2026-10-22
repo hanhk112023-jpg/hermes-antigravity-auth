@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import asyncio
+import inspect
 from typing import Any, Iterator
 
 import httpx
@@ -14,6 +15,9 @@ from .endpoints import select_endpoint
 from .transform.envelope import (
   build_antigravity_envelope,
   build_antigravity_url,
+  get_thinking_config,
+  normalize_reasoning_effort,
+  resolve_model_for_effort,
   resolve_model_for_header_style,
 )
 
@@ -62,6 +66,46 @@ def resolve_project_id() -> str:
     pass
 
   return ANTIGRAVITY_DEFAULT_PROJECT_ID
+
+
+def _max_output_tokens_for_model(model: str) -> int | None:
+  """Return the Cloud Code completion ceiling for a public model family."""
+  lower = (model or "").lower()
+  if lower.startswith("antigravity-"):
+    lower = lower[len("antigravity-"):]
+  if "image" in lower:
+    return 4_096
+  if "claude" in lower:
+    return 64_000 if "4-6" in lower else 8_192
+  if "gpt-oss" in lower:
+    return 32_768
+  if "argon" in lower or "gemini" in lower:
+    return 65_536
+  return None
+
+
+def _build_native_request(
+  native: Any,
+  request_kwargs: dict[str, Any],
+  *,
+  wire_model: str,
+  response_format: Any,
+) -> dict[str, Any]:
+  """Build with newer native capabilities without breaking older Hermes."""
+  builder = native.build_gemini_request
+  try:
+    parameters = inspect.signature(builder).parameters
+  except (TypeError, ValueError):
+    parameters = {}
+  accepts_kwargs = any(
+    parameter.kind is inspect.Parameter.VAR_KEYWORD
+    for parameter in parameters.values()
+  )
+  if accepts_kwargs or "model" in parameters:
+    request_kwargs["model"] = wire_model
+  if response_format is not None and (accepts_kwargs or "response_format" in parameters):
+    request_kwargs["response_format"] = response_format
+  return builder(**request_kwargs)
 
 
 def _wrap_antigravity_http_client(client: httpx.Client) -> httpx.Client:
@@ -185,17 +229,23 @@ class AntigravityCloudCodeClient:
     return self._endpoint
 
   def close(self) -> None:
+    if self.is_closed:
+      return
+    self._http.close()
+    # Mark closed only after the backend confirms shutdown. Callers can
+    # observe and retry a failed close instead of losing the real error.
     self.is_closed = True
-    try:
-      self._http.close()
-    except Exception:
-      pass
 
   def __enter__(self) -> "AntigravityCloudCodeClient":
     return self
 
   def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-    self.close()
+    try:
+      self.close()
+    except Exception as close_error:
+      if exc_val is not None:
+        raise close_error.with_traceback(close_error.__traceback__) from exc_val
+      raise
 
   @staticmethod
   def _advance_stream_iterator(iterator: Iterator[Any]) -> tuple[bool, Any]:
@@ -226,35 +276,80 @@ class AntigravityCloudCodeClient:
     max_tokens: int | None = None,
     top_p: float | None = None,
     stop: Any = None,
+    response_format: Any = None,
     extra_body: dict[str, Any] | None = None,
     timeout: Any = None,
     **_: Any,
   ) -> Any:
     native = _load_native_adapter()
-    thinking_config = None
-    if isinstance(extra_body, dict):
-      thinking_config = extra_body.get("thinking_config") or extra_body.get("thinkingConfig")
+    extra = extra_body if isinstance(extra_body, dict) else {}
+    thinking_config = extra.get("thinking_config")
+    if thinking_config is None:
+      thinking_config = extra.get("thinkingConfig")
+    reasoning = extra.get("reasoning")
+    if reasoning is None:
+      reasoning = extra.get("reasoning_effort")
+    effort = normalize_reasoning_effort(reasoning)
+    if response_format is None:
+      response_format = extra.get("response_format")
 
-    request_payload = native.build_gemini_request(
-      messages=messages or [],
-      tools=tools,
-      tool_choice=tool_choice,
-      temperature=temperature,
-      max_tokens=max_tokens,
-      top_p=top_p,
-      stop=stop,
-      thinking_config=thinking_config,
+    wire_model = (
+      resolve_model_for_effort(model, effort)
+      if effort is not None
+      else resolve_model_for_header_style(model, "antigravity")
     )
-    wire_model = resolve_model_for_header_style(model, "gemini-cli")
+    if thinking_config is None and effort is not None:
+      thinking_config = get_thinking_config(wire_model, effort)
+
+    # Cloud Code has model-specific output ceilings. Supplying the default is
+    # important for GPT-OSS, whose native generic default is otherwise too high.
+    ceiling = _max_output_tokens_for_model(model)
+    if ceiling is not None:
+      max_tokens = ceiling if max_tokens is None else min(max_tokens, ceiling)
+
+    request_payload = _build_native_request(
+      native,
+      {
+        "messages": messages or [],
+        "tools": tools,
+        "tool_choice": tool_choice,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "top_p": top_p,
+        "stop": stop,
+        "thinking_config": thinking_config,
+      },
+      wire_model=wire_model,
+      response_format=response_format,
+    )
+    generation = request_payload.setdefault("generationConfig", {})
+    if isinstance(generation, dict):
+      if thinking_config is not None and generation.get("thinkingConfig") is None:
+        generation["thinkingConfig"] = thinking_config
+      # Native Hermes may raise an omitted/small cap for thinking headroom;
+      # never let that generic adjustment exceed this backend's ceiling.
+      output_tokens = generation.get("maxOutputTokens")
+      if ceiling is not None:
+        if output_tokens is None and max_tokens is not None:
+          generation["maxOutputTokens"] = max_tokens
+        elif isinstance(output_tokens, (int, float)) and output_tokens > ceiling:
+          generation["maxOutputTokens"] = ceiling
+
     envelope = build_antigravity_envelope(
       request_payload,
       model=wire_model,
       project_id=resolve_project_id(),
-      header_style="gemini-cli",
+      header_style="antigravity",
     )
 
     if stream:
-      return self._stream_completion(native, model=wire_model, envelope=envelope, timeout=timeout)
+      return self._stream_completion(
+        native,
+        model=model,
+        wire_model=wire_model,
+        envelope=envelope,
+        timeout=timeout,
+      )
 
     url = build_antigravity_url(self._endpoint_for_request(), wire_model, action="generateContent", streaming=False)
     response = self._http.post(
@@ -278,10 +373,11 @@ class AntigravityCloudCodeClient:
     native: Any,
     *,
     model: str,
+    wire_model: str,
     envelope: dict[str, Any],
     timeout: Any = None,
   ) -> Iterator[Any]:
-    url = build_antigravity_url(self._endpoint_for_request(), model, action="streamGenerateContent", streaming=True)
+    url = build_antigravity_url(self._endpoint_for_request(), wire_model, action="streamGenerateContent", streaming=True)
 
     def _generator() -> Iterator[Any]:
       try:
@@ -347,4 +443,9 @@ class AsyncAntigravityCloudCodeClient:
     return self
 
   async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-    await self.close()
+    try:
+      await self.close()
+    except Exception as close_error:
+      if exc_val is not None:
+        raise close_error.with_traceback(close_error.__traceback__) from exc_val
+      raise

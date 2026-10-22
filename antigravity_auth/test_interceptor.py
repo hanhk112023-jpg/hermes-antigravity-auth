@@ -1517,6 +1517,64 @@ class TestRetryWrapper(unittest.TestCase):
         self.assertTrue(calls[1].extensions["antigravity_retry_attempted"])
         self.assertEqual(calls[1].extensions["antigravity_retry_original_status"], 401)
 
+    def test_send_wrapper_retries_replayable_streaming_401_once(self):
+        from antigravity_auth.interceptor import _send_with_antigravity_retry
+
+        calls = []
+        responses = []
+
+        def original_send(request, *args, **kwargs):
+            calls.append((request, kwargs))
+            status = 401 if len(calls) == 1 else 200
+            response = httpx.Response(
+                status,
+                request=request,
+                stream=httpx.ByteStream(b"{}" if status == 200 else b"unauthorized"),
+            )
+            responses.append(response)
+            return response
+
+        req = self._make_request()
+        req.extensions["antigravity_retry_ready"] = True
+        req.headers["Authorization"] = "Bearer stale-access-token"
+        req.headers["Client-Metadata"] = "stale-fingerprint"
+        response = _send_with_antigravity_retry(original_send, req, stream=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(kwargs.get("stream") for _, kwargs in calls))
+        self.assertTrue(responses[0].is_closed)
+        self.assertFalse(responses[1].is_closed)
+        self.assertEqual(calls[1][0].extensions["antigravity_retry_original_status"], 401)
+        self.assertNotIn("authorization", calls[1][0].headers)
+        self.assertNotIn("client-metadata", calls[1][0].headers)
+        response.close()
+
+    def test_streaming_retry_still_skips_non_replayable_request_body(self):
+        from antigravity_auth.interceptor import _send_with_antigravity_retry
+
+        class BrokenStream(httpx.SyncByteStream):
+            def __iter__(self):
+                raise RuntimeError("body already consumed")
+
+        calls = []
+
+        def original_send(request, *args, **kwargs):
+            calls.append(request)
+            return httpx.Response(401, request=request)
+
+        req = httpx.Request(
+            "POST",
+            "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent",
+            content=BrokenStream(),
+        )
+        req.extensions["antigravity_retry_ready"] = True
+        response = _send_with_antigravity_retry(original_send, req, stream=True)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(req.extensions["antigravity_retry_skipped_reason"], "request body is not replayable")
+
     def test_headers_for_retry_removes_stale_auth_fingerprint_and_antigravity_headers(self):
         from antigravity_auth.interceptor import _headers_for_retry
 

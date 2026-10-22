@@ -5,6 +5,7 @@ import sys
 import types
 import unittest
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import httpx
@@ -13,6 +14,54 @@ import antigravity_auth.cloudcode_client as cloudcode_client
 
 
 class TestAntigravityCloudCodeClient(unittest.TestCase):
+  def test_close_failure_preserves_state_and_can_retry(self):
+    with patch("antigravity_auth.cloudcode_client._wrap_antigravity_http_client", side_effect=lambda client: client):
+      backend = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200)), trust_env=False)
+      client = cloudcode_client.AntigravityCloudCodeClient(http_client=backend)
+      with patch.object(backend, "close", side_effect=OSError("backend close denied")):
+        with self.assertRaisesRegex(OSError, "backend close denied"):
+          client.close()
+      self.assertFalse(client.is_closed)
+      client.close()
+      client.close()
+      self.assertTrue(client.is_closed)
+
+  def test_sync_context_chains_body_error_when_close_fails(self):
+    body_error = ValueError("body failed")
+    with patch("antigravity_auth.cloudcode_client._wrap_antigravity_http_client", side_effect=lambda client: client):
+      backend = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200)), trust_env=False)
+      client = cloudcode_client.AntigravityCloudCodeClient(http_client=backend)
+      with patch.object(backend, "close", side_effect=OSError("backend close denied")):
+        with self.assertRaisesRegex(OSError, "backend close denied") as caught:
+          with client:
+            raise body_error
+      self.assertIs(caught.exception.__context__, body_error)
+      self.assertFalse(client.is_closed)
+      client.close()
+
+  def test_async_close_failure_and_context_error_chaining(self):
+    with patch("antigravity_auth.cloudcode_client._wrap_antigravity_http_client", side_effect=lambda client: client):
+      backend = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200)), trust_env=False)
+      sync = cloudcode_client.AntigravityCloudCodeClient(http_client=backend)
+      client = cloudcode_client.AsyncAntigravityCloudCodeClient(sync)
+
+      async def check():
+        body_error = ValueError("async body failed")
+        with patch.object(backend, "close", side_effect=OSError("backend close denied")):
+          with self.assertRaisesRegex(OSError, "backend close denied"):
+            await client.close()
+          self.assertFalse(client.is_closed)
+          with self.assertRaisesRegex(OSError, "backend close denied") as caught:
+            async with client:
+              raise body_error
+          self.assertIs(caught.exception.__context__, body_error)
+          self.assertFalse(client.is_closed)
+        await client.close()
+        await client.close()
+        self.assertTrue(client.is_closed)
+
+      asyncio.run(check())
+
   def test_wrap_antigravity_http_client_warns_when_interceptor_wrap_fails(self):
     client = httpx.Client()
     try:
@@ -268,6 +317,166 @@ class TestAntigravityCloudCodeClient(unittest.TestCase):
 
     self.assertEqual(first, "one")
     self.assertTrue(result.closed)
+
+  def test_reasoning_routes_wire_model_and_preserves_antigravity_envelope(self):
+    captured: dict[str, Any] = {}
+    native_kwargs: dict[str, Any] = {}
+
+    def build_gemini_request(**kwargs):
+      native_kwargs.update(kwargs)
+      return {
+        "contents": [],
+        "generationConfig": {
+          "maxOutputTokens": kwargs.get("max_tokens"),
+          "thinkingConfig": kwargs.get("thinking_config"),
+        },
+      }
+
+    def transport(request: httpx.Request) -> httpx.Response:
+      request.read()
+      captured["body"] = json.loads(request.content)
+      return httpx.Response(200, request=request, json={"response": {"candidates": []}})
+
+    native = types.ModuleType("agent.gemini_native_adapter")
+    native.build_gemini_request = build_gemini_request
+    native.translate_gemini_response = lambda payload, model: SimpleNamespace(model=model)
+    native.gemini_http_error = lambda response, body_text="": RuntimeError(body_text or response.text)
+    agent = types.ModuleType("agent")
+    response_format = {"type": "json_object"}
+
+    with patch.dict(sys.modules, {
+      "agent": agent,
+      "agent.gemini_native_adapter": native,
+    }), patch.dict(os.environ, {"HERMES_GEMINI_PROJECT_ID": "project-1"}), patch(
+      "antigravity_auth.cloudcode_client._wrap_antigravity_http_client",
+      side_effect=lambda client: client,
+    ):
+      client = cloudcode_client.AntigravityCloudCodeClient(
+        base_url="https://cloudcode-pa.googleapis.com",
+        http_client=httpx.Client(transport=httpx.MockTransport(transport)),
+      )
+      result = client.chat.completions.create(
+        model="gemini-3.8-flash",
+        messages=[],
+        max_tokens=200_000,
+        response_format=response_format,
+        extra_body={"reasoning": {"enabled": True, "effort": "high"}},
+      )
+      client.close()
+
+    body = captured["body"]
+    self.assertEqual(result.model, "gemini-3.8-flash")
+    self.assertEqual(body["model"], "gemini-3.8-flash-high")
+    self.assertEqual(body["requestType"], "agent")
+    self.assertEqual(body["userAgent"], "antigravity")
+    self.assertTrue(body["requestId"].startswith("agent-"))
+    self.assertIn("systemInstruction", body["request"])
+    self.assertEqual(body["request"]["generationConfig"]["thinkingConfig"], {
+      "includeThoughts": True,
+      "thinkingBudget": -1,
+    })
+    self.assertEqual(body["request"]["generationConfig"]["maxOutputTokens"], 65_536)
+    self.assertEqual(native_kwargs["model"], "gemini-3.8-flash-high")
+    self.assertEqual(native_kwargs["response_format"], response_format)
+
+  def test_stream_uses_effort_routing_but_returns_public_model(self):
+    captured: dict[str, Any] = {}
+    translated_models: list[str] = []
+
+    def build_gemini_request(**kwargs):
+      return {
+        "contents": [],
+        "generationConfig": {"thinkingConfig": kwargs.get("thinking_config")},
+      }
+
+    def translate_stream_event(event, model, tool_call_indices):
+      translated_models.append(model)
+      return [SimpleNamespace(model=model)]
+
+    def transport(request: httpx.Request) -> httpx.Response:
+      request.read()
+      captured["body"] = json.loads(request.content)
+      return httpx.Response(200, request=request, content=b"data: {}\n\n")
+
+    native = types.ModuleType("agent.gemini_native_adapter")
+    native.build_gemini_request = build_gemini_request
+    native.translate_gemini_response = lambda payload, model: SimpleNamespace(model=model)
+    native.gemini_http_error = lambda response, body_text="": RuntimeError(body_text or response.text)
+    native._iter_sse_events = lambda response: iter([{"candidates": []}])
+    native.translate_stream_event = translate_stream_event
+    agent = types.ModuleType("agent")
+
+    with patch.dict(sys.modules, {
+      "agent": agent,
+      "agent.gemini_native_adapter": native,
+    }), patch.dict(os.environ, {"HERMES_GEMINI_PROJECT_ID": "project-1"}), patch(
+      "antigravity_auth.cloudcode_client._wrap_antigravity_http_client",
+      side_effect=lambda client: client,
+    ):
+      client = cloudcode_client.AntigravityCloudCodeClient(
+        base_url="https://cloudcode-pa.googleapis.com",
+        http_client=httpx.Client(transport=httpx.MockTransport(transport)),
+      )
+      stream = client.chat.completions.create(
+        model="gemini-3.5-flash",
+        messages=[],
+        stream=True,
+        extra_body={"reasoning": {"effort": "high"}},
+      )
+      chunks = list(stream)
+      client.close()
+
+    self.assertEqual([chunk.model for chunk in chunks], ["gemini-3.5-flash"])
+    self.assertEqual(translated_models, ["gemini-3.5-flash"])
+    self.assertEqual(captured["body"]["model"], "gemini-3-flash-agent")
+    self.assertEqual(captured["body"]["requestType"], "agent")
+    self.assertEqual(captured["body"]["request"]["generationConfig"]["thinkingConfig"]["thinkingBudget"], 10_000)
+
+  def test_legacy_native_signature_still_builds_request(self):
+    captured: dict[str, Any] = {}
+
+    def build_gemini_request(*, messages, tools, tool_choice, temperature, max_tokens, top_p, stop, thinking_config):
+      return {
+        "contents": messages,
+        "generationConfig": {
+          # Simulate Hermes' generic thinking-headroom adjustment.
+          "maxOutputTokens": max(max_tokens or 0, 65_535),
+          "thinkingConfig": thinking_config,
+        },
+      }
+
+    def transport(request: httpx.Request) -> httpx.Response:
+      request.read()
+      captured["body"] = json.loads(request.content)
+      return httpx.Response(200, request=request, json={"response": {"candidates": []}})
+
+    native = types.ModuleType("agent.gemini_native_adapter")
+    native.build_gemini_request = build_gemini_request
+    native.translate_gemini_response = lambda payload, model: SimpleNamespace(model=model)
+    native.gemini_http_error = lambda response, body_text="": RuntimeError(body_text or response.text)
+    agent = types.ModuleType("agent")
+
+    with patch.dict(sys.modules, {
+      "agent": agent,
+      "agent.gemini_native_adapter": native,
+    }), patch(
+      "antigravity_auth.cloudcode_client._wrap_antigravity_http_client",
+      side_effect=lambda client: client,
+    ):
+      client = cloudcode_client.AntigravityCloudCodeClient(
+        base_url="https://cloudcode-pa.googleapis.com",
+        http_client=httpx.Client(transport=httpx.MockTransport(transport)),
+      )
+      client.chat.completions.create(
+        model="gpt-oss-120b",
+        messages=[],
+        response_format={"type": "json_object"},
+        extra_body={"reasoning": {"effort": "high"}},
+      )
+      client.close()
+
+    self.assertEqual(captured["body"]["model"], "gpt-oss-120b-medium")
+    self.assertEqual(captured["body"]["request"]["generationConfig"]["maxOutputTokens"], 32_768)
 
 
 if __name__ == "__main__":
