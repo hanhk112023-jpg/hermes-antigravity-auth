@@ -118,6 +118,22 @@ def _python_from_launcher_script(launcher: Path) -> Path | None:
   if python is not None:
     return python
 
+  # Check if launcher script execs a python binary directly: exec /path/to/python...
+  python_match = re.search(r'exec\s+([^\s\'"]+python[0-9.]*)', text)
+  if python_match is not None:
+    found = _existing_python(Path(python_match.group(1)))
+    if found is not None:
+      return found
+
+  # Check if launcher script execs another script: exec /path/to/script "$@"
+  exec_match = re.search(r'exec\s+([^\s\'"]+)\s+"\$@"', text)
+  if exec_match is not None:
+    target_script = Path(exec_match.group(1))
+    if target_script.exists() and target_script != launcher:
+      nested = _python_from_launcher_script(target_script)
+      if nested is not None:
+        return nested
+
   match = re.search(r'exec\s+"([^"]+/venv/bin/hermes)"', text)
   if match is not None:
     return _python_from_venv_script(Path(match.group(1)))
