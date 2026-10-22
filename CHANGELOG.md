@@ -2,6 +2,11 @@
 
 All notable changes to hermes-antigravity-auth.
 
+## [1.9.4] — 2026-10-22
+
+### Added
+- **Streaming Auto-Retry & Resilient Failover**: `AntigravityCloudCodeClient._stream_completion` now automatically traps HTTP 401, 403, 429 and transient network dropouts before stream yield, dynamically triggering account failover/re-selection and replay up to 2 times without interrupting user conversations.
+
 ## [1.9.3] — 2026-10-22
 
 ### Fixed

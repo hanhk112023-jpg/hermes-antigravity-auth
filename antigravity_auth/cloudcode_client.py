@@ -284,24 +284,48 @@ class AntigravityCloudCodeClient:
     url = build_antigravity_url(self._endpoint_for_request(), model, action="streamGenerateContent", streaming=True)
 
     def _generator() -> Iterator[Any]:
-      try:
-        with self._http.stream(
-          "POST",
-          url,
-          json=envelope,
-          headers=self._headers(streaming=True),
-          timeout=timeout or self._timeout,
-        ) as response:
-          if response.status_code != 200:
-            body_text = _read_streaming_error_body(response)
-            raise native.gemini_http_error(response, body_text=body_text)
-          tool_call_indices: dict[str, dict[str, Any]] = {}
-          for event in native._iter_sse_events(response):
-            payload = _stream_payload(event)
-            for chunk in native.translate_stream_event(payload, model, tool_call_indices):
-              yield chunk
-      except httpx.HTTPError as exc:
-        raise RuntimeError(f"Antigravity Cloud Code streaming request failed: {exc}") from exc
+      max_retries = 2
+      attempts = 0
+      while attempts <= max_retries:
+        attempts += 1
+        try:
+          with self._http.stream(
+            "POST",
+            url,
+            json=envelope,
+            headers=self._headers(streaming=True),
+            timeout=timeout or self._timeout,
+          ) as response:
+            if response.status_code != 200:
+              body_text = _read_streaming_error_body(response)
+              # On 401 or 429 before yielding any content, attempt proactive failover/retry
+              if response.status_code in (401, 403, 429) and attempts <= max_retries:
+                logger.warning(
+                  "Antigravity streaming got HTTP %s (attempt %d/%d). Triggering failover...",
+                  response.status_code,
+                  attempts,
+                  max_retries + 1,
+                )
+                try:
+                  from .interceptor import _select_request_account, get_config
+                  cfg = get_config()
+                  _select_request_account(model, "gemini-cli", cfg)
+                except Exception as exc:
+                  logger.debug("Failover attempt error: %s", exc)
+                continue
+              raise native.gemini_http_error(response, body_text=body_text)
+
+            tool_call_indices: dict[str, dict[str, Any]] = {}
+            for event in native._iter_sse_events(response):
+              payload = _stream_payload(event)
+              for chunk in native.translate_stream_event(payload, model, tool_call_indices):
+                yield chunk
+            return
+        except httpx.HTTPError as exc:
+          if attempts <= max_retries:
+            logger.warning("Antigravity streaming network error: %s. Retrying...", exc)
+            continue
+          raise RuntimeError(f"Antigravity Cloud Code streaming request failed: {exc}") from exc
 
     return _generator()
 

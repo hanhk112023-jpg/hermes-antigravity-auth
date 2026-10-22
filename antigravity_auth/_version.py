@@ -1,3 +1,3 @@
 """Single source for hermes-antigravity-auth package version."""
 
-__version__ = "1.9.3"
+__version__ = "1.9.4"
