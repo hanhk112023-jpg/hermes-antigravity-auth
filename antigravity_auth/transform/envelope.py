@@ -108,17 +108,18 @@ MODEL_NAME_MAP: dict[str, str] = {
     "antigravity-gemini-3.6-flash-high": "gemini-3.6-flash-high",
     "antigravity-gemini-3.6-flash-tiered": "gemini-3.6-flash-tiered",
 
-    # Gemini 3.5 Flash
-    "gemini-3.5-flash": GEMINI_37_FLASH_TIERED,
-    "gemini-3.5-flash-high": GEMINI_37_FLASH_TIERED,
-    "gemini-3.5-flash-medium": GEMINI_37_FLASH_TIERED,
-    "gemini-3.5-flash-low": GEMINI_37_FLASH_TIERED,
-    "gemini-3.5-flash-minimal": GEMINI_37_FLASH_TIERED,
-    "antigravity-gemini-3.5-flash": GEMINI_37_FLASH_TIERED,
-    "antigravity-gemini-3.5-flash-high": GEMINI_37_FLASH_TIERED,
-    "antigravity-gemini-3.5-flash-medium": GEMINI_37_FLASH_TIERED,
-    "antigravity-gemini-3.5-flash-low": GEMINI_37_FLASH_TIERED,
-    "antigravity-gemini-3.5-flash-minimal": GEMINI_37_FLASH_TIERED,
+    # Gemini 3.5 Flash (aligned with pi-antigravity)
+    "gemini-3.5-flash": "gemini-3.5-flash-extra-low",
+    "gemini-3.5-flash-high": "gemini-3-flash-agent",
+    "gemini-3.5-flash-medium": "gemini-3.5-flash-low",
+    "gemini-3.5-flash-low": "gemini-3.5-flash-low",
+    "gemini-3.5-flash-minimal": "gemini-3.5-flash-extra-low",
+    "gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low",
+    "antigravity-gemini-3.5-flash": "gemini-3.5-flash-extra-low",
+    "antigravity-gemini-3.5-flash-high": "gemini-3-flash-agent",
+    "antigravity-gemini-3.5-flash-medium": "gemini-3.5-flash-low",
+    "antigravity-gemini-3.5-flash-low": "gemini-3.5-flash-low",
+    "antigravity-gemini-3.5-flash-minimal": "gemini-3.5-flash-extra-low",
 
     # Gemini 3.1 Pro
     "gemini-3.1-pro": "gemini-3.1-pro",

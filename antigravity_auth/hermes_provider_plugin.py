@@ -401,6 +401,11 @@ def _patch_hermes_model_picker() -> None:
         from .discovery import load_cached_catalog
         cached = load_cached_catalog()
         if cached and isinstance(cached.get("models"), dict):
+          from .grouping import group_antigravity_catalog
+          groups = group_antigravity_catalog(cached["models"], include_all=False)
+          for g in groups:
+            if g.public_id not in all_models:
+              all_models.append(g.public_id)
           for mid, info in cached["models"].items():
             if isinstance(info, dict) and not info.get("isInternal") and not mid.startswith("chat_"):
               if mid not in all_models:

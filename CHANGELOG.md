@@ -2,6 +2,16 @@
 
 All notable changes to hermes-antigravity-auth.
 
+## [1.9.1] — 2026-10-22
+
+### Added
+- **pi-antigravity Model Grouping Engine**: Full implementation of `Rahularya01/pi-antigravity`'s `grouping.ts` architecture (`antigravity_auth/grouping.py`).
+  - Automatic collapsing of runtime variants (`-low`, `-medium`, `-high`, `-extra-low`, `-tiered`, `-agent`) into canonical public model entries (`gemini-3.8-flash`, `gemini-3.5-flash`, `claude-opus-4-6`, `claude-sonnet-4-6`, `gemini-2.5-pro`, `gpt-oss-120b`, `gemini-3.1-flash-image`).
+  - Merged agent singletons (`gemini-3-flash-agent` merged as High tier into `gemini-3.5-flash`).
+  - Priority display formatting matching `pi-antigravity`: Model ID, Name, Thinking Levels, Context Window, Max Output, Quota Remaining, and Reset Time.
+  - Added `--all` flag to `hermes agy models` to inspect raw runtime IDs.
+  - Priority registration of grouped public models into Hermes Agent's model picker and provider catalog.
+
 ## [1.9.0] — 2026-10-22
 
 ### Added

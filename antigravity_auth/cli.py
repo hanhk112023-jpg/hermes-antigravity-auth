@@ -1207,7 +1207,7 @@ def _get_active_auth_token_and_project() -> tuple[str, str, str]:
 
 
 def show_dynamic_models(include_all: bool = False) -> bool:
-    """Fetch and print dynamic model catalog from Antigravity API."""
+    """Fetch and print dynamic model catalog from Antigravity API, grouped like pi-antigravity."""
     try:
         access_token, project_id, email = _get_active_auth_token_and_project()
     except Exception as exc:
@@ -1216,6 +1216,7 @@ def show_dynamic_models(include_all: bool = False) -> bool:
 
     print(f"\nFetching models for {email} (Project: {project_id or '<none>'})...")
     from .discovery import fetch_available_models, save_cached_catalog, format_reset_time
+    from .grouping import group_antigravity_catalog
     try:
         data = fetch_available_models(access_token, project_id)
         models = data.get("models") or {}
@@ -1228,27 +1229,39 @@ def show_dynamic_models(include_all: bool = False) -> bool:
         print("No models returned by Antigravity API.")
         return True
 
-    print(f"\nAvailable Antigravity Models ({len(models)} found):")
-    print("=" * 80)
-    print(f"{'Model ID':<35} {'Display Name':<25} {'Remaining':<12} {'Reset':<10}")
-    print("-" * 80)
+    agent_sorts = data.get("agentModelSorts")
+    groups = group_antigravity_catalog(models, include_all=include_all, agent_model_sorts=agent_sorts)
 
-    for mid, info in sorted(models.items()):
-        if not isinstance(info, dict):
-            continue
-        if not include_all and (info.get("isInternal") or mid.startswith("chat_")):
-            continue
-        display_name = info.get("displayName") or info.get("label") or mid
-        quota_info = info.get("quotaInfo") or {}
-        rem_frac = quota_info.get("remainingFraction")
-        if rem_frac is not None and isinstance(rem_frac, (int, float)):
-            rem_str = f"{round(rem_frac * 100, 1)}%"
-        else:
-            rem_str = "n/a"
-        reset_time = format_reset_time(quota_info.get("resetTime"))
-        print(f"{mid:<35} {str(display_name)[:24]:<25} {rem_str:<12} {reset_time:<10}")
+    if not include_all:
+        print(f"\nAvailable Antigravity Models ({len(groups)} public models found):")
+        print("=" * 120)
+        print(f"{'Model ID':<24} {'Name':<32} {'Thinking Levels':<20} {'Context':<9} {'Max Out':<9} {'Quota':<10} {'Reset':<10}")
+        print("-" * 120)
+        for g in groups:
+            rem_str = f"{round(g.remaining_fraction * 100, 1)}%" if g.remaining_fraction is not None else "n/a"
+            reset_str = format_reset_time(g.reset_time)
+            ctx_str = f"{g.context_window // 1000}k" if g.context_window < 1_000_000 else f"{g.context_window // 1_000_000}M"
+            mot_str = f"{g.max_output_tokens:,}"
+            levels_str = g.get_thinking_levels_str()
+            print(f"{g.public_id:<24} {g.display_name:<32} {levels_str:<20} {ctx_str:<9} {mot_str:<9} {rem_str:<10} {reset_str:<10}")
+        print("=" * 120)
+        print("Tip: Use 'hermes agy models --all' to inspect raw backend runtime IDs.")
+    else:
+        print(f"\nRaw Runtime Antigravity Models ({len(models)} entries):")
+        print("=" * 90)
+        print(f"{'Runtime ID':<35} {'Display Name':<28} {'Remaining':<12} {'Reset':<10}")
+        print("-" * 90)
+        for mid, info in sorted(models.items()):
+            if not isinstance(info, dict):
+                continue
+            display_name = info.get("displayName") or info.get("label") or mid
+            quota_info = info.get("quotaInfo") or {}
+            rem_frac = quota_info.get("remainingFraction")
+            rem_str = f"{round(rem_frac * 100, 1)}%" if rem_frac is not None else "n/a"
+            reset_time = format_reset_time(quota_info.get("resetTime"))
+            print(f"{mid:<35} {str(display_name)[:27]:<28} {rem_str:<12} {reset_time:<10}")
+        print("=" * 90)
 
-    print("=" * 80)
     print(f"Endpoint: {data.get('endpoint')}")
     return True
 
