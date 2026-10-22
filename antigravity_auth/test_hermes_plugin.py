@@ -171,7 +171,7 @@ class TestHermesPluginRegister(unittest.TestCase):
     self.assertEqual(fake_models._PROVIDER_ALIASES["ag"], "google-gemini-cli")
     self.assertNotIn("google-gemini-cli", fake_models.PROVIDER_GROUPS["google"][1])
     self.assertNotIn("google-gemini-cli", fake_models._SLUG_TO_GROUP)
-    self.assertIn("gemini-3.5-flash-high", fake_models._PROVIDER_MODELS["google-gemini-cli"])
+    self.assertIn("gemini-3.8-flash", fake_models._PROVIDER_MODELS["google-gemini-cli"])
 
   def test_provider_plugin_handles_three_field_provider_groups(self):
     from collections import namedtuple
@@ -263,7 +263,7 @@ class TestHermesPluginRegister(unittest.TestCase):
     from antigravity_auth.hermes_provider_plugin import ANTIGRAVITY_MODELS
     claude_models = [m for m in ANTIGRAVITY_MODELS if "claude" in m.lower()]
     self.assertGreater(len(claude_models), 0)
-    self.assertIn("claude-opus-4-6-thinking", claude_models)
+    self.assertIn("claude-opus-4-6", claude_models)
 
   def test_register_registers_cli_command(self):
     from antigravity_auth import hermes_plugin
@@ -410,7 +410,7 @@ class TestHermesPluginRegister(unittest.TestCase):
       print_interceptor_status()
 
     output = " ".join(str(call.args[0]) for call in mock_print.call_args_list if call.args)
-    self.assertIn("claude-opus-4-6-thinking", output)
+    self.assertIn("claude-opus-4-6", output)
     self.assertIn("Claude routing: READY", output)
 
   def test_interceptor_status_warns_when_not_installed_and_claude_models_present(self):

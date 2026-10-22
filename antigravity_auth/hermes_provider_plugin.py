@@ -164,6 +164,8 @@ class AntigravityProfile(ProviderProfile):
         if isinstance(info, dict) and info.get("maxTokens"):
           mt = int(info["maxTokens"])
           if mt > 0:
+            if "image" in (model or "").lower():
+              return min(mt, 32_768)
             return mt
     except Exception:
       pass
@@ -292,52 +294,15 @@ class AntigravityProfile(ProviderProfile):
 # Flash aliases route to gemini-3.5-flash-low.
 # Claude names are passed through as-is; Antigravity forwards those to the
 # Anthropic backend.
+# Public Antigravity models matching Rahularya01/pi-antigravity
 ANTIGRAVITY_MODELS = (
-  # Claude models
-  "claude-opus-4-6-thinking",
-  "claude-sonnet-4-6-thinking",
-  "claude-sonnet-4-6",
-  # Gemini 4 Argon
-  "gemini-4-argon",
-  "gemini-4-argon-high",
-  "gemini-4-argon-medium",
-  "gemini-4-argon-low",
-  # Gemini 3.8 Flash
   "gemini-3.8-flash",
-  "gemini-3.8-flash-high",
-  "gemini-3.8-flash-medium",
-  "gemini-3.8-flash-low",
-  # Gemini 3.7 Flash
-  "gemini-3.7-flash",
-  "gemini-3.7-flash-high",
-  "gemini-3.7-flash-medium",
-  "gemini-3.7-flash-low",
-  # Gemini 3.6 Flash
-  "gemini-3.6-flash",
-  "gemini-3.6-flash-high",
-  "gemini-3.6-flash-medium",
-  "gemini-3.6-flash-low",
-  # Gemini 3.5 Flash aliases
   "gemini-3.5-flash",
-  "gemini-3.5-flash-high",
-  "gemini-3.5-flash-medium",
-  "gemini-3.5-flash-low",
-  "gemini-3.5-flash-minimal",
-  # Gemini 3.1 Pro aliases
-  "gemini-3.1-pro",
-  "gemini-3.1-pro-preview",
-  "gemini-3.1-pro-high",
-  "gemini-3.1-pro-low",
-  # Gemini Image Generation
-  "gemini-3.1-flash-image",
-  # Gemini 3.0 (legacy -preview suffix)
-  "gemini-3-pro-preview",
-  "gemini-3-flash-preview",
-  # Gemini 2.5 (legacy)
+  "claude-opus-4-6",
+  "claude-sonnet-4-6",
   "gemini-2.5-pro",
-  "gemini-2.5-flash",
-  # GPT-OSS
-  "gpt-oss-120b-medium",
+  "gemini-3.1-flash-image",
+  "gpt-oss-120b",
 )
 
 
@@ -396,22 +361,18 @@ def _patch_hermes_model_picker() -> None:
 
   def apply_patches() -> bool:
     try:
-      all_models: list[str] = list(ANTIGRAVITY_MODELS)
+      all_models: list[str] = []
       try:
         from .discovery import load_cached_catalog
         cached = load_cached_catalog()
         if cached and isinstance(cached.get("models"), dict):
           from .grouping import group_antigravity_catalog
           groups = group_antigravity_catalog(cached["models"], include_all=False)
-          for g in groups:
-            if g.public_id not in all_models:
-              all_models.append(g.public_id)
-          for mid, info in cached["models"].items():
-            if isinstance(info, dict) and not info.get("isInternal") and not mid.startswith("chat_"):
-              if mid not in all_models:
-                all_models.append(str(mid))
+          all_models = [g.public_id for g in groups]
       except Exception:
         pass
+      if not all_models:
+        all_models = list(ANTIGRAVITY_MODELS)
       models._PROVIDER_MODELS["google-gemini-cli"] = all_models
     except Exception as exc:
       _record(

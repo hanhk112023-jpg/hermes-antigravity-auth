@@ -7,7 +7,8 @@ from antigravity_auth.hermes_provider_plugin import antigravity
 
 
 class TestAntigravityContextAndDiscovery(unittest.TestCase):
-    def test_default_family_context_lengths(self):
+    @patch("antigravity_auth.discovery.load_cached_catalog", return_value=None)
+    def test_default_family_context_lengths(self, _mock_cat):
         # Gemini 3.8 / 4 Argon / 3.7 / 3.5 -> 1M tokens
         self.assertEqual(antigravity.get_model_context_length("gemini-4-argon"), 1_048_576)
         self.assertEqual(antigravity.get_model_context_length("gemini-3.8-flash"), 1_048_576)
