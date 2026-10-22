@@ -60,25 +60,65 @@ def sync_token_to_google_oauth(
     expires_ms: int | None = None,
 ) -> bool:
   """Write credentials to Hermes' native auth/google_oauth.json store."""
-  try:
-    from agent.google_oauth import GoogleCredentials, save_credentials
-  except Exception:
+  import sys
+  if "agent.google_oauth" in sys.modules and sys.modules.get("agent.google_oauth") is None:
     return False
 
   parts = parse_refresh_parts(refresh_token)
   resolved_project_id = project_id or parts.get("projectId") or ""
   resolved_expires_ms = expires_ms or int(time.time() * 1000) + 3600 * 1000
 
-  credentials = GoogleCredentials(
-    access_token=access_token,
-    refresh_token=parts.get("refreshToken", ""),
-    expires_ms=resolved_expires_ms,
-    email=email or "",
-    project_id=resolved_project_id,
-    managed_project_id=parts.get("managedProjectId") or "",
-  )
-  save_credentials(credentials)
-  return True
+  # Attempt 1: via native agent.google_oauth if available
+  try:
+    from agent.google_oauth import GoogleCredentials, save_credentials
+    credentials = GoogleCredentials(
+      access_token=access_token,
+      refresh_token=parts.get("refreshToken", ""),
+      expires_ms=resolved_expires_ms,
+      email=email or "",
+      project_id=resolved_project_id,
+      managed_project_id=parts.get("managedProjectId") or "",
+    )
+    save_credentials(credentials)
+    return True
+  except Exception:
+    pass
+
+  # Attempt 2: write directly to ~/.hermes/auth/google_oauth.json with 0o600 permissions
+  try:
+    import json
+    import os
+    from .storage import get_hermes_home
+    hermes_home = get_hermes_home()
+    target_dir = hermes_home / "auth"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    try:
+      target_dir.chmod(0o700)
+    except OSError:
+      pass
+    target_file = target_dir / "google_oauth.json"
+    data = {
+      "access_token": access_token,
+      "refresh_token": parts.get("refreshToken", ""),
+      "expires_ms": resolved_expires_ms,
+      "email": email or "",
+      "project_id": resolved_project_id,
+      "managed_project_id": parts.get("managedProjectId") or "",
+    }
+    tmp_file = target_file.with_name(f"{target_file.name}.tmp.{os.getpid()}")
+    tmp_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    try:
+      tmp_file.chmod(0o600)
+    except OSError:
+      pass
+    tmp_file.replace(target_file)
+    try:
+      target_file.chmod(0o600)
+    except OSError:
+      pass
+    return True
+  except Exception:
+    return False
 
 
 def sync_token_to_all_auth_stores(

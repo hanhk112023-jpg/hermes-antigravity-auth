@@ -1422,6 +1422,11 @@ def _install_modern_runtime_patch() -> bool:
     return True
 
   try:
+    import hermes_cli.auth
+  except Exception:
+    pass
+
+  try:
     import agent.agent_runtime_helpers as runtime_helpers
     import agent.auxiliary_client as auxiliary_client
     from .hermes_compat import modern_runtime_feature_gaps
@@ -1515,7 +1520,7 @@ def _install_modern_runtime_patch() -> bool:
 def install() -> bool:
   global _PATCHED, _ORIGINAL_INIT, _ORIGINAL_WRAP_CODE_ASSIST, _ORIGINAL_ENSURE_PROJECT_CONTEXT
   if _PATCHED:
-    return False
+    return True
 
   # ── Global safety net: wrap every httpx.Client so we catch requests
   #     regardless of which subclass or code path creates them. ──

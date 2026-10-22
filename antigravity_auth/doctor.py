@@ -450,8 +450,8 @@ def _check_config() -> list[DoctorRow]:
           rows.append(_row("FAIL", "config.yaml", "top-level YAML value is not a mapping", "Make ~/.hermes/config.yaml a YAML mapping."))
       except Exception as exc:
         rows.append(_row("FAIL", "config.yaml", f"YAML parse failed: {exc}", "Fix the YAML syntax and rerun doctor."))
-    except Exception:
-      rows.append(_row("WARN", "PyYAML", f"{config_path} exists but PyYAML is not installed", f"Run {INSTALL_COMMAND}; normal installs include {GIT_PACKAGE_SPEC}."))
+    except Exception as exc:
+      rows.append(_row("WARN", "PyYAML", f"{config_path} exists but PyYAML is not installed ({exc})", f"Run {INSTALL_COMMAND}; normal installs include {GIT_PACKAGE_SPEC}."))
   else:
     rows.append(_row("WARN", "config.yaml", f"{config_path} is missing", "Create config.yaml if you need plugin settings; defaults are usable."))
   if parsed_config is not None:

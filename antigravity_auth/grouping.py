@@ -323,8 +323,9 @@ def merge_agent_singletons(groups: dict[str, PublicModelGroup]):
 
 def group_antigravity_catalog(
     raw_models: dict[str, Any],
-    include_all: bool = False,
     agent_model_sorts: Any = None,
+    *,
+    include_all: bool = False,
 ) -> list[PublicModelGroup]:
     """Group raw Antigravity models into public model entries, identical to pi-antigravity."""
     recommended_ids = extract_recommended_model_ids(agent_model_sorts)

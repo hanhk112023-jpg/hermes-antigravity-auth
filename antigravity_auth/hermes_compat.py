@@ -52,6 +52,10 @@ def _missing(module: Any, names: tuple[str, ...]) -> list[str]:
 
 
 def modern_runtime_feature_gaps() -> list[str]:
+  try:
+    import hermes_cli.auth
+  except Exception:
+    pass
   gaps: list[str] = []
   for module_name, names in MODERN_RUNTIME_REQUIREMENTS:
     module, error = _import_module(module_name)

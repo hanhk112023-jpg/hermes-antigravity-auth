@@ -2,6 +2,15 @@
 
 All notable changes to hermes-antigravity-auth.
 
+## [1.9.3] — 2026-10-22
+
+### Fixed
+- **Circular Import Elimination in Hermes CLI**: Broke circular dependency loop between `hermes_cli.auth` and `agent.credential_persistence` by reordering `_OAUTH_GRANT_DEAD_CODES` and ensuring `hermes_cli.auth` is pre-imported in `modern_runtime_feature_gaps`.
+- **Dual Store Synchronization**: Added direct fallback in `sync_token_to_google_oauth` to ensure `~/.hermes/auth/google_oauth.json` is always synchronized with correct 0o600 permissions even when `agent.google_oauth` module is unavailable.
+- **Dynamic Diagnostics & Interceptor Self-Reporting**: Fixed `interceptor.install()` returning `True` when already installed, eliminating false positive warning in doctor.
+- **Catalog Grouping Signature Fix**: Updated `group_antigravity_catalog` to enforce keyword-only `include_all` flag, ensuring internal Google IDE ghost-text/autocomplete tabs (`chat_*`, `tab_*`) are strictly excluded.
+- **All Hermes Tool and Runtime Environments Synced**: Installed `hermes-antigravity-auth` and `pyyaml` across all Python environments (`tools/python-3.14.7` and active virtualenvs).
+
 ## [1.9.2] — 2026-10-22
 
 ### Fixed
