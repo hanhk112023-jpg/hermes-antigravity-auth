@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+.pytest_cache/
+
+# Local credentials
+antigravity_auth/_credentials.py
+
+# Environment
+.env
+.env.*.local
+
+# IDE
+.idea
+.DS_Store
+
+# Logs
+*.log
+antigravity-debug-*.log
+
+# Coverage
+coverage
+*.lcov
+
+# Sisyphus working files
+.sisyphus/
+
+# Legacy (original TypeScript project)
+node_modules/

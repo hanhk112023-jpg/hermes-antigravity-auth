@@ -1,0 +1,77 @@
+name: CI
+
+"on":
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: python -m pip install -e '.[dev,yaml]'
+      - name: Test
+        run: python -m pytest antigravity_auth/ -q
+      - name: Compile
+        run: python -m compileall -q antigravity_auth plugins
+
+  clean-install:
+    name: Clean source archive install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Build source archive smoke
+        run: |
+          git archive --format=tar HEAD | tar -x -C /tmp -f -
+          cd /tmp
+          python -m pip install -e '.[dev,yaml]'
+          python -m pytest antigravity_auth/ -q
+          python -m pip install build
+          python -m build --sdist --wheel
+          python - <<'PY'
+          from pathlib import Path
+          import tarfile
+          import zipfile
+
+          artifacts = sorted(Path("dist").iterdir())
+          if not artifacts:
+            raise SystemExit("no artifacts found in dist/")
+          for artifact in artifacts:
+            if tarfile.is_tarfile(artifact):
+              with tarfile.open(artifact) as archive:
+                names = archive.getnames()
+            elif zipfile.is_zipfile(artifact):
+              with zipfile.ZipFile(artifact) as archive:
+                names = archive.namelist()
+            else:
+              raise SystemExit(f"unknown artifact type: {artifact}")
+            for name in names:
+              if name.endswith("antigravity_auth/_credentials.py"):
+                raise SystemExit(f"forbidden credentials module in {artifact}: {name}")
+          print("artifact contents OK")
+          PY
+
+  smoke:
+    name: CLI selftest smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: python -m pip install -e '.[dev,yaml]'
+      - name: Run offline selftest
+        run: python -m antigravity_auth.selftest
