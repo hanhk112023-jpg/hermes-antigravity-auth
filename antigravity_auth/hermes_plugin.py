@@ -32,6 +32,14 @@ def ensure_provider_loaded() -> None:
 
 def register(ctx):
   """Register Hermes CLI commands when loaded via entry points."""
+  # Register the concise primary command 'agy'
+  ctx.register_cli_command(
+    name="agy",
+    help="Google Antigravity utilities (concise alias)",
+    setup_fn=setup_cli,
+    handler_fn=handle_cli,
+  )
+  # Also keep 'antigravity' for compatibility
   ctx.register_cli_command(
     name="antigravity",
     help="Google Antigravity utilities",

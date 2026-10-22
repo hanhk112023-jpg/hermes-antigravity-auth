@@ -95,6 +95,9 @@ except Exception as exc:
     def get_max_tokens(self, model: str | None) -> int | None:
       return self.default_max_tokens
 
+    def fetch_account_usage(self, base_url: str = "", api_key: str = "") -> Any:
+      return None
+
   def register_provider(profile: ProviderProfile) -> None:
     _record(
       "WARN",
@@ -187,6 +190,100 @@ class AntigravityProfile(ProviderProfile):
     if "argon" in m or "gemini" in m:
       return 65_536
     return 8_192
+
+  def fetch_account_usage(self, base_url: str = "", api_key: str = "") -> Any:
+    """Hermes /usage and 'hermes usage' hook for Antigravity accounts."""
+    try:
+      from datetime import datetime, timezone
+      from .storage import load_accounts, resolve_active_account_index
+      from .token import format_refresh_parts, refresh_access_token
+      from .discovery import fetch_user_quota_summary
+
+      accounts_data = load_accounts()
+      accounts = accounts_data.get("accounts", [])
+      if not isinstance(accounts, list) or not accounts:
+        return None
+
+      active_idx = resolve_active_account_index(accounts_data, family="gemini")
+      if not (0 <= active_idx < len(accounts)):
+        active_idx = 0
+      acc = accounts[active_idx]
+      email = str(acc.get("email") or "Unknown")
+      project_id = str(acc.get("projectId") or acc.get("managedProjectId") or "")
+
+      refresh_token = str(acc.get("refreshToken") or "")
+      if not refresh_token:
+        return None
+
+      packed_refresh = format_refresh_parts({
+        "refreshToken": refresh_token,
+        "projectId": project_id,
+        "managedProjectId": acc.get("managedProjectId") or "",
+      })
+      refreshed = refresh_access_token(
+        {"refresh": packed_refresh, "email": email},
+        persist=True,
+        set_active=True,
+      )
+      access_token = refreshed.get("access", "")
+      if not access_token:
+        return None
+
+      summary = fetch_user_quota_summary(access_token, project_id)
+      groups = summary.get("groups") or []
+      if not groups:
+        return None
+
+      from agent.account_usage import AccountUsageSnapshot, AccountUsageWindow
+
+      windows = []
+      for g in groups:
+        if not isinstance(g, dict):
+          continue
+        g_name = str(g.get("displayName") or "Shared Pool")
+        for b in g.get("buckets", []):
+          if not isinstance(b, dict):
+            continue
+          b_name = str(b.get("displayName") or b.get("bucketId") or "Limit")
+          rem = b.get("remainingFraction")
+          used_pct = round((1.0 - rem) * 100.0, 1) if isinstance(rem, (int, float)) else None
+
+          reset_dt = None
+          rt = b.get("resetTime")
+          if rt and isinstance(rt, str):
+            try:
+              clean_rt = rt.replace("Z", "+00:00")
+              reset_dt = datetime.fromisoformat(clean_rt)
+            except Exception:
+              pass
+
+          detail_parts = [email]
+          if project_id:
+            detail_parts.append(f"Project: {project_id}")
+          if isinstance(rem, (int, float)):
+            detail_parts.append(f"Remaining: {round(rem * 100, 1)}%")
+
+          windows.append(
+            AccountUsageWindow(
+              label=f"{g_name} ({b_name})",
+              used_percent=used_pct,
+              reset_at=reset_dt,
+              detail=" | ".join(detail_parts),
+              scope="account",
+            )
+          )
+
+      return AccountUsageSnapshot(
+        provider="google-gemini-cli",
+        source="Google Antigravity API",
+        title=f"Google Antigravity Limits ({email})",
+        plan="Antigravity",
+        fetched_at=datetime.now(timezone.utc),
+        windows=tuple(windows),
+        identity=email,
+      )
+    except Exception:
+      return None
 
 
 # User-facing aliases are listed here; transform/envelope.py maps them to the

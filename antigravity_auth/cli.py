@@ -289,7 +289,22 @@ def run_login_flow(project_id: str = "", no_browser: bool = False) -> bool:
     code = None
     state = None
 
-    if not no_browser:
+    is_ssh = bool(
+        os.environ.get("SSH_CLIENT")
+        or os.environ.get("SSH_TTY")
+        or os.environ.get("SSH_CONNECTION")
+        or os.environ.get("HERMES_REMOTE_LOGIN")
+    )
+    is_remote = no_browser or is_ssh
+
+    print("=" * 70)
+    print("Google Antigravity OAuth Login")
+    print("=" * 70)
+    print("\nMở đường link sau trên trình duyệt để cấp quyền:")
+    print(f"\n{auth_url}\n")
+    print("=" * 70)
+
+    if not is_remote:
         print("Opening your browser to authorize...")
         try:
             webbrowser.open(auth_url)
@@ -306,10 +321,10 @@ def run_login_flow(project_id: str = "", no_browser: bool = False) -> bool:
             print(f"Failed to open browser or start server: {e}")
 
     if not code:
-        print("\nPlease open the following link manually in your browser to authorize:")
-        print(f"\n{auth_url}\n")
+        print("\nSau khi cấp quyền, trình duyệt sẽ chuyển hướng tới URL dạng localhost:51121/...")
+        print("Sao chép toàn bộ đường link đó (hoặc đoạn mã code) và dán vào đây:\n")
         try:
-            user_input = input("Paste the redirect URL or the 'code' parameter value: ").strip()
+            user_input = input("Dán URL chuyển hướng hoặc mã 'code': ").strip()
             if not user_input:
                 print("Login failed: empty input.")
                 return False
@@ -327,7 +342,7 @@ def run_login_flow(project_id: str = "", no_browser: bool = False) -> bool:
             else:
                 code = user_input
                 state = auth_data.get("state", "")
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, OSError):
             print("\nLogin cancelled by user.")
             return False
 
@@ -901,8 +916,7 @@ def interactive_accounts_menu():
             if choice == "1":
                 list_accounts()
             elif choice == "2":
-                proj = input("Enter Google Cloud Project ID (optional): ").strip()
-                run_login_flow(project_id=proj)
+                run_login_flow(project_id="")
             elif choice == "3":
                 list_accounts()
                 accounts_data = load_accounts()
