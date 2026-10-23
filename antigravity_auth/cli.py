@@ -1253,7 +1253,7 @@ def show_dynamic_models(include_all: bool = False) -> bool:
             ctx_str = f"{UI.CYAN}{g.context_window // 1000}k{UI.RESET}" if g.context_window < 1_000_000 else f"{UI.BRIGHT_MAGENTA}{g.context_window // 1_000_000}M{UI.RESET}"
             mot_str = f"{g.max_output_tokens:,}"
             levels_str = g.get_thinking_levels_str()
-            print(f"{UI.BOLD}{g.public_id:<24}{UI.RESET} {g.display_name:<32} {levels_str:<18} {ctx_str:<18} {mot_str:<9} {rem_str:<19} {reset_display}")
+            print(f"{UI.BOLD}{g.public_id:<24}{UI.RESET} {g.display_name:<32} {levels_str:<18} {ctx_str:<9} {mot_str:<9} {rem_str:<10} {reset_display}")
         print(f"{UI.DIM}{'═' * 115}{UI.RESET}")
         print(f"{UI.DIM}Tip: Use 'hermes agy models --all' to inspect raw backend runtime IDs.{UI.RESET}")
     else:
