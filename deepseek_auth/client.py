@@ -196,6 +196,9 @@ class DeepSeekWebClient:
             ) as response:
                 response.raise_for_status()
                 text_result = ""
+                reasoning_result = ""
+                current_fragment_type = "RESPONSE"
+
                 for line in response.iter_lines():
                     if not line or not line.startswith("data:"):
                         continue
@@ -210,20 +213,50 @@ class DeepSeekWebClient:
                             continue
 
                         val = chunk_obj.get("v")
+                        # 1. New fragment appended: [{"id": 3, "type": "RESPONSE", "content": "..."}]
+                        if chunk_obj.get("p") == "response/fragments" and isinstance(val, list):
+                            for frag in val:
+                                if isinstance(frag, dict) and "type" in frag:
+                                    current_fragment_type = frag.get("type", "RESPONSE")
+                                    content = frag.get("content", "")
+                                    if content:
+                                        if current_fragment_type == "THINK":
+                                            reasoning_result += content
+                                        elif current_fragment_type == "RESPONSE":
+                                            text_result += content
+                            continue
+
+                        # 2. Initial message envelope with fragments
                         if isinstance(val, dict):
-                            # Initial message envelope with fragments
                             resp_meta = val.get("response", {})
                             for frag in resp_meta.get("fragments", []):
-                                if frag.get("type") == "RESPONSE" and frag.get("content"):
-                                    text_result += frag.get("content")
-                        elif isinstance(val, str):
-                            text_result += val
+                                if isinstance(frag, dict) and "type" in frag:
+                                    current_fragment_type = frag.get("type", "RESPONSE")
+                                    content = frag.get("content", "")
+                                    if content:
+                                        if current_fragment_type == "THINK":
+                                            reasoning_result += content
+                                        elif current_fragment_type == "RESPONSE":
+                                            text_result += content
+                            continue
+
+                        # 3. Text delta (string val)
+                        if isinstance(val, str):
+                            if current_fragment_type == "THINK":
+                                reasoning_result += val
+                            elif current_fragment_type == "RESPONSE":
+                                text_result += val
                     except Exception:
                         pass
         finally:
             self._delete_session(token, session_id)
 
         from types import SimpleNamespace
+        msg_ns = SimpleNamespace(role="assistant", content=text_result)
+        if reasoning_result:
+            msg_ns.reasoning_content = reasoning_result
+            msg_ns.reasoning = reasoning_result
+
         return SimpleNamespace(
             id=f"chatcmpl-{session_id}",
             object="chat.completion",
@@ -232,7 +265,7 @@ class DeepSeekWebClient:
             choices=[
                 SimpleNamespace(
                     index=0,
-                    message=SimpleNamespace(role="assistant", content=text_result),
+                    message=msg_ns,
                     finish_reason="stop",
                 )
             ],
@@ -259,6 +292,8 @@ class DeepSeekWebClient:
                     timeout=300.0,
                 ) as resp:
                     resp.raise_for_status()
+                    current_fragment_type = "RESPONSE"
+
                     for line in resp.iter_lines():
                         if not line or not line.startswith("data:"):
                             continue
@@ -272,20 +307,73 @@ class DeepSeekWebClient:
                             if parsed.get("p") in ("response/search_status", "response/status"):
                                 continue
 
-                            chunk_text = ""
+                            # 1. New fragment appended
+                            if parsed.get("p") == "response/fragments" and isinstance(parsed.get("v"), list):
+                                for frag in parsed["v"]:
+                                    if isinstance(frag, dict) and "type" in frag:
+                                        current_fragment_type = frag.get("type", "RESPONSE")
+                                        content = frag.get("content", "")
+                                        if content:
+                                            delta_kwargs = {"role": "assistant"}
+                                            if current_fragment_type == "THINK":
+                                                delta_kwargs["reasoning_content"] = content
+                                                delta_kwargs["content"] = ""
+                                            else:
+                                                delta_kwargs["content"] = content
+                                            yield SimpleNamespace(
+                                                id=f"chatcmpl-{session_id}",
+                                                object="chat.completion.chunk",
+                                                created=int(time.time()),
+                                                model=model,
+                                                choices=[
+                                                    SimpleNamespace(
+                                                        index=0,
+                                                        delta=SimpleNamespace(**delta_kwargs),
+                                                        finish_reason=None,
+                                                    )
+                                                ],
+                                            )
+                                continue
+
+                            # 2. Initial envelope
                             val = parsed.get("v")
                             if isinstance(val, dict):
                                 resp_meta = val.get("response", {})
                                 for frag in resp_meta.get("fragments", []):
-                                    if frag.get("type") == "RESPONSE" and frag.get("content"):
-                                        chunk_text += frag.get("content")
-                            elif isinstance(val, str):
-                                chunk_text = val
-                            elif "choices" in parsed:
-                                chunk_text = parsed["choices"][0].get("delta", {}).get("content", "")
+                                    if isinstance(frag, dict) and "type" in frag:
+                                        current_fragment_type = frag.get("type", "RESPONSE")
+                                        content = frag.get("content", "")
+                                        if content:
+                                            delta_kwargs = {"role": "assistant"}
+                                            if current_fragment_type == "THINK":
+                                                delta_kwargs["reasoning_content"] = content
+                                                delta_kwargs["content"] = ""
+                                            else:
+                                                delta_kwargs["content"] = content
+                                            yield SimpleNamespace(
+                                                id=f"chatcmpl-{session_id}",
+                                                object="chat.completion.chunk",
+                                                created=int(time.time()),
+                                                model=model,
+                                                choices=[
+                                                    SimpleNamespace(
+                                                        index=0,
+                                                        delta=SimpleNamespace(**delta_kwargs),
+                                                        finish_reason=None,
+                                                    )
+                                                ],
+                                            )
+                                continue
 
-                            if chunk_text:
-                                chunk = SimpleNamespace(
+                            # 3. String delta
+                            if isinstance(val, str) and val:
+                                delta_kwargs = {"role": "assistant"}
+                                if current_fragment_type == "THINK":
+                                    delta_kwargs["reasoning_content"] = val
+                                    delta_kwargs["content"] = ""
+                                else:
+                                    delta_kwargs["content"] = val
+                                yield SimpleNamespace(
                                     id=f"chatcmpl-{session_id}",
                                     object="chat.completion.chunk",
                                     created=int(time.time()),
@@ -293,12 +381,11 @@ class DeepSeekWebClient:
                                     choices=[
                                         SimpleNamespace(
                                             index=0,
-                                            delta=SimpleNamespace(content=chunk_text, role="assistant"),
+                                            delta=SimpleNamespace(**delta_kwargs),
                                             finish_reason=None,
                                         )
                                     ],
                                 )
-                                yield chunk
                         except Exception:
                             continue
 
