@@ -301,6 +301,21 @@ class DeepSeekWebClient:
                                 yield chunk
                         except Exception:
                             continue
+
+                # Emit final chunk with finish_reason="stop" so Hermes knows stream ended cleanly
+                yield SimpleNamespace(
+                    id=f"chatcmpl-{session_id}",
+                    object="chat.completion.chunk",
+                    created=int(time.time()),
+                    model=model,
+                    choices=[
+                        SimpleNamespace(
+                            index=0,
+                            delta=SimpleNamespace(content="", role="assistant"),
+                            finish_reason="stop",
+                        )
+                    ],
+                )
             finally:
                 self._delete_session(token, session_id)
 
