@@ -27,6 +27,7 @@ BASE_HEADERS = {
     "Host": DEEPSEEK_HOST,
     "User-Agent": "DeepSeek/2.1.1 Android/35",
     "Accept": "application/json",
+    "Accept-Encoding": "gzip",
     "Content-Type": "application/json",
     "x-client-platform": "android",
     "x-client-version": "2.1.1",
@@ -109,7 +110,11 @@ class DeepSeekWebClient:
         )
         data = resp.json()
         if resp.status_code == 200 and data.get("code") == 0:
-            return str(data["data"]["biz_data"]["id"])
+            biz_data = data.get("data", {}).get("biz_data", {})
+            if "chat_session" in biz_data and "id" in biz_data["chat_session"]:
+                return str(biz_data["chat_session"]["id"])
+            if "id" in biz_data:
+                return str(biz_data["id"])
         msg = data.get("msg") or str(resp.status_code)
         raise RuntimeError(f"Failed to create DeepSeek chat session: {msg}")
 
@@ -123,7 +128,8 @@ class DeepSeekWebClient:
         )
         data = resp.json()
         if resp.status_code == 200 and data.get("code") == 0:
-            challenge = data["data"]["biz_data"]["challenge"]
+            biz_data = data.get("data", {}).get("biz_data", {})
+            challenge = biz_data.get("challenge") or biz_data
             return solve_pow_challenge(challenge)
         msg = data.get("msg") or str(resp.status_code)
         raise RuntimeError(f"Failed to obtain DeepSeek PoW challenge: {msg}")
@@ -156,8 +162,9 @@ class DeepSeekWebClient:
             prompt_parts.append(f"{role.capitalize()}: {content}")
         final_prompt = "\n\n".join(prompt_parts)
 
-        thinking_enabled = "r1" in model.lower() or "reasoner" in model.lower()
-        search_enabled = bool(kwargs.get("search_enabled", False))
+        m = model.lower()
+        thinking_enabled = "r1" in m or "reasoner" in m or "think" in m or "deepthink" in m
+        search_enabled = bool(kwargs.get("search_enabled", False)) or "search" in m
 
         token, _ = self._ensure_token()
         session_id = self._create_session(token)
@@ -180,26 +187,37 @@ class DeepSeekWebClient:
 
         # Non-streaming
         try:
-            response = self._http.post(
+            with self._http.stream(
+                "POST",
                 DEEPSEEK_COMPLETION_URL,
                 headers=headers,
                 json=payload,
-                timeout=120.0,
-            )
-            response.raise_for_status()
-            text_result = ""
-            for line in response.iter_lines():
-                if line.startswith("data: "):
-                    data_str = line[6:].strip()
+                timeout=180.0,
+            ) as response:
+                response.raise_for_status()
+                text_result = ""
+                for line in response.iter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data_str = line[5:].strip()
                     if data_str == "[DONE]":
                         break
                     try:
                         chunk_obj = json.loads(data_str)
-                        if "v" in chunk_obj and isinstance(chunk_obj["v"], str):
-                            text_result += chunk_obj["v"]
-                        elif "choices" in chunk_obj:
-                            delta = chunk_obj["choices"][0].get("delta", {})
-                            text_result += delta.get("content", "")
+                        if chunk_obj.get("p") == "response/status" and chunk_obj.get("v") == "FINISHED":
+                            break
+                        if chunk_obj.get("p") in ("response/search_status", "response/status"):
+                            continue
+
+                        val = chunk_obj.get("v")
+                        if isinstance(val, dict):
+                            # Initial message envelope with fragments
+                            resp_meta = val.get("response", {})
+                            for frag in resp_meta.get("fragments", []):
+                                if frag.get("type") == "RESPONSE" and frag.get("content"):
+                                    text_result += frag.get("content")
+                        elif isinstance(val, str):
+                            text_result += val
                     except Exception:
                         pass
         finally:
@@ -242,20 +260,30 @@ class DeepSeekWebClient:
                 ) as resp:
                     resp.raise_for_status()
                     for line in resp.iter_lines():
-                        if not line or not line.startswith("data: "):
+                        if not line or not line.startswith("data:"):
                             continue
-                        raw = line[6:].strip()
+                        raw = line[5:].strip()
                         if raw == "[DONE]":
                             break
                         try:
                             parsed = json.loads(raw)
+                            if parsed.get("p") == "response/status" and parsed.get("v") == "FINISHED":
+                                break
+                            if parsed.get("p") in ("response/search_status", "response/status"):
+                                continue
+
                             chunk_text = ""
-                            # Check SSE patch ops
-                            if parsed.get("o") == "APPEND" and isinstance(parsed.get("v"), str):
-                                chunk_text = parsed["v"]
+                            val = parsed.get("v")
+                            if isinstance(val, dict):
+                                resp_meta = val.get("response", {})
+                                for frag in resp_meta.get("fragments", []):
+                                    if frag.get("type") == "RESPONSE" and frag.get("content"):
+                                        chunk_text += frag.get("content")
+                            elif isinstance(val, str):
+                                chunk_text = val
                             elif "choices" in parsed:
                                 chunk_text = parsed["choices"][0].get("delta", {}).get("content", "")
-                            
+
                             if chunk_text:
                                 chunk = SimpleNamespace(
                                     id=f"chatcmpl-{session_id}",

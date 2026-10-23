@@ -52,12 +52,26 @@ except Exception:
         pass
 
 
+DEEPSEEK_MODELS = [
+    "deepseek-chat",
+    "deepseek-reasoner",
+    "deepseek-chat-search",
+    "deepseek-reasoner-search",
+    "deepseek-v3",
+    "deepseek-r1",
+]
+
+
 class DeepSeekWebProfile(BaseProviderProfile):  # type: ignore
     def get_model_context_length(self, model: str) -> int | None:
         return 131_072
 
     def get_max_tokens(self, model: str | None) -> int | None:
         return 8_192
+
+    def create_client(self, **client_kwargs: Any) -> Any | None:
+        from deepseek_auth.client import DeepSeekWebClient
+        return DeepSeekWebClient(**client_kwargs)
 
 
 DEEPSEEK_PROFILE = DeepSeekWebProfile(
@@ -67,17 +81,17 @@ DEEPSEEK_PROFILE = DeepSeekWebProfile(
     aliases=("deepseek-web", "deepseek2api", "ds"),
     env_vars=("DEEPSEEK_API_KEY", "DEEPSEEK_TOKEN"),
     base_url="https://chat.deepseek.com",
-    fallback_models=("deepseek-chat", "deepseek-reasoner"),
+    fallback_models=tuple(DEEPSEEK_MODELS),
     default_aux_model="deepseek-chat",
     default_max_tokens=8192,
 )
 
 def _patch_hermes_picker() -> None:
-    """Ensure deepseek provider models point to deepseek-chat and deepseek-reasoner."""
+    """Ensure deepseek provider models point to all supported DeepSeek web variants."""
     try:
         from hermes_cli.models_catalog_static import _PROVIDER_MODELS
-        _PROVIDER_MODELS["deepseek"] = ["deepseek-chat", "deepseek-reasoner"]
-        _PROVIDER_MODELS["deepseek-web"] = ["deepseek-chat", "deepseek-reasoner"]
+        _PROVIDER_MODELS["deepseek"] = list(DEEPSEEK_MODELS)
+        _PROVIDER_MODELS["deepseek-web"] = list(DEEPSEEK_MODELS)
     except Exception as exc:
         logger.debug("Failed to patch _PROVIDER_MODELS: %s", exc)
 

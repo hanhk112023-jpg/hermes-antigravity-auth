@@ -58,23 +58,41 @@ def sync_token_to_hermes_auth(token: str) -> None:
         except Exception:
             data = {"version": 1, "providers": {}}
     try:
-        providers = data.setdefault("providers", {})
+        from agent.credential_pool import load_pool, PooledCredential, AUTH_TYPE_API_KEY, SOURCE_MANUAL
+        pool = load_pool("deepseek")
+        if not pool.has_credentials():
+            entry = PooledCredential(
+                provider="deepseek",
+                id="deepseek-web",
+                label="DeepSeek Web Token",
+                auth_type=AUTH_TYPE_API_KEY,
+                priority=0,
+                source=SOURCE_MANUAL,
+                access_token=token,
+            )
+            pool.add_entry(entry)
+    except Exception as exc:
+        logger.debug("Failed to seed credential pool: %s", exc)
+
+    try:
+        from hermes_cli.auth import _load_auth_store, _save_auth_store
+        auth_store = _load_auth_store()
+        cp = auth_store.setdefault("credential_pool", {})
+        cp["deepseek"] = [{
+            "id": "deepseek-web",
+            "provider": "deepseek",
+            "auth_type": "api_key",
+            "priority": 0,
+            "source": "manual",
+            "label": "DeepSeek Web Token",
+            "access_token": token,
+        }]
+        providers = auth_store.setdefault("providers", {})
         providers["deepseek"] = {"token": token, "api_key": token}
         providers["deepseek-web"] = {"token": token, "api_key": token}
-        # Also set env var for current session
-        os.environ["DEEPSEEK_API_KEY"] = token
-        os.environ["DEEPSEEK_TOKEN"] = token
-        temp_file = auth_file.with_suffix(".tmp")
-        with open(temp_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        os.replace(temp_file, auth_file)
-        try:
-            os.chmod(auth_file, 0o600)
-        except OSError:
-            pass
-        logger.info("Successfully synced DeepSeek token to Hermes auth.json")
-    except Exception as exc:
-        logger.warning("Failed to sync token to auth.json: %s", exc)
+        _save_auth_store(auth_store)
+    except Exception:
+        pass
 
 
 def add_or_update_account(
