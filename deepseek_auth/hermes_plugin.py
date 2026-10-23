@@ -6,13 +6,18 @@ import argparse
 import logging
 from typing import Any
 
-from deepseek_auth.cli import cmd_list, cmd_login, cmd_test
+from deepseek_auth.cli import cmd_list, cmd_login, cmd_set_token, cmd_test
 
 logger = logging.getLogger(__name__)
 
 
 def setup_cli_parser(parser: argparse.ArgumentParser) -> None:
     subparsers = parser.add_subparsers(dest="deepseek_command", help="DeepSeek CLI subcommands")
+
+    p_token = subparsers.add_parser("set-token", help="Set DeepSeek auth userToken directly")
+    p_token.add_argument("--token", "-t", help="DeepSeek userToken string")
+    p_token.add_argument("--name", "-n", default="UserToken", help="Account nickname")
+    p_token.set_defaults(func=cmd_set_token)
 
     p_login = subparsers.add_parser("login", help="Log into DeepSeek with email/mobile")
     p_login.add_argument("--identifier", "-u", help="Email or mobile phone")

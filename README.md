@@ -12,13 +12,31 @@ Reverse-engineered Web API gateway bypassing Cloud Code/Antigravity and providin
 
 ## CLI Usage
 
+### Cách 1: Dùng trực tiếp userToken từ trình duyệt (Khuyên dùng để né OTP/Captcha)
+
+1. Mở [chat.deepseek.com](https://chat.deepseek.com) trên trình duyệt và đăng nhập.
+2. Bấm **F12** -> Chuyển sang tab **Console** và chạy:
+   ```javascript
+   JSON.parse(localStorage.getItem("userToken")).value
+   ```
+   (hoặc vào tab **Application** -> **Local Storage** -> `https://chat.deepseek.com` -> copy giá trị key `userToken`).
+3. Chạy lệnh:
+   ```bash
+   hermes deepseek set-token
+   ```
+   (Dán token vừa copy vào).
+
+### Cách 2: Đăng nhập bằng Email/SĐT + Mật khẩu
 ```bash
-# Login with your DeepSeek credentials
-hermes-deepseek login
+hermes deepseek login
+```
+*(Nếu DeepSeek bắt xác minh OTP hoặc Captcha, hãy chuyển sang Cách 1)*
 
-# List configured accounts
-hermes-deepseek list
+### Quản lý & Kiểm thử
+```bash
+# Danh sách tài khoản
+hermes deepseek list
 
-# Test completion
-hermes-deepseek test --prompt "Hello DeepSeek" --model deepseek-chat
+# Test chat completion
+hermes deepseek test --prompt "Hello DeepSeek" --model deepseek-chat
 ```

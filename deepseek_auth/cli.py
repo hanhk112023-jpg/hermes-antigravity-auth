@@ -17,8 +17,24 @@ from .storage import (
 from .ui import UI
 
 
+def cmd_set_token(args: Any) -> None:
+    print(UI.banner())
+    token = args.token
+    if not token:
+        token = input(f"{UI.BOLD}DeepSeek userToken (from chat.deepseek.com): {UI.RESET}").strip()
+    if not token:
+        print(f"{UI.RED}Error: Token cannot be empty.{UI.RESET}")
+        return
+
+    name = args.name or "UserToken"
+    add_or_update_account(name, token)
+    print(f"{UI.GREEN}✓ Successfully saved userToken for [{name}]!{UI.RESET}\n")
+
+
 def cmd_login(args: Any) -> None:
     print(UI.banner())
+    print(f"{UI.YELLOW}Lưu ý: Nếu đăng nhập tài khoản/mật khẩu bị yêu cầu OTP hoặc Captcha,{UI.RESET}")
+    print(f"{UI.YELLOW}hãy dùng lệnh: {UI.BOLD}hermes deepseek set-token{UI.RESET} (lấy userToken từ F12 chat.deepseek.com)\n")
     identifier = args.identifier
     if not identifier:
         identifier = input(f"{UI.BOLD}Email or Mobile (+84...): {UI.RESET}").strip()
@@ -99,6 +115,12 @@ def cmd_test(args: Any) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="DeepSeek Web to API Manager")
     subparsers = parser.add_subparsers(dest="command", help="Subcommand to execute")
+
+    # set-token
+    p_token = subparsers.add_parser("set-token", help="Set DeepSeek auth userToken directly")
+    p_token.add_argument("--token", "-t", help="DeepSeek userToken string")
+    p_token.add_argument("--name", "-n", default="UserToken", help="Account nickname")
+    p_token.set_defaults(func=cmd_set_token)
 
     # login
     p_login = subparsers.add_parser("login", help="Log into DeepSeek with email/mobile")

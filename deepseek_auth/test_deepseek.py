@@ -39,7 +39,7 @@ class TestDeepSeekWeb(unittest.TestCase):
 
         with patch("deepseek_auth.storage.DEEPSEEK_ACCOUNTS_FILE", test_file):
             self.assertIsNone(get_active_account())
-            add_or_update_account("test@example.com", "fake_token_123", password="secret_password")
+            add_or_update_account("test@example.com", '{"value": "fake_token_123"}', password="secret_password")
             active = get_active_account()
             self.assertIsNotNone(active)
             self.assertEqual(active["email"], "test@example.com")

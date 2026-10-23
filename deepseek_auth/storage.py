@@ -52,6 +52,16 @@ def add_or_update_account(
     mobile: str = "",
     email: str = "",
 ) -> None:
+    # Auto-extract token if user pasted JSON: {"value": "..."} or full userToken object
+    token = token.strip()
+    if token.startswith("{") and "value" in token:
+        try:
+            parsed = json.loads(token)
+            if isinstance(parsed, dict) and "value" in parsed:
+                token = str(parsed["value"]).strip()
+        except Exception:
+            pass
+
     data = load_accounts()
     accounts = data["accounts"]
     found = False
