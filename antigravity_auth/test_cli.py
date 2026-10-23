@@ -861,8 +861,8 @@ class TestCli(unittest.TestCase):
             interactive_accounts_menu()
 
         output = "\n".join(str(call.args[0]) for call in mock_print.call_args_list if call.args)
-        self.assertIn("6. Set account project ID", output)
-        self.assertIn("7. Exit", output)
+        self.assertIn("Set account project ID", output)
+        self.assertIn("Exit", output)
 
 if __name__ == "__main__":
     unittest.main()

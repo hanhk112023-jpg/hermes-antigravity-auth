@@ -442,14 +442,16 @@ def list_accounts():
         print("No Google Antigravity accounts registered yet.")
         return
 
-    print("\nGoogle Antigravity Registered Accounts:")
-    print("=" * 60)
+    from .ui import UI
+    print(f"\n{UI.BOLD}Google Antigravity Registered Accounts:{UI.RESET}")
+    print(f"{UI.DIM}{'═' * 68}{UI.RESET}")
     for idx, acc in enumerate(accounts):
-        is_active = "*" if idx == active_idx else " "
+        is_active = f"{UI.BRIGHT_GREEN}● ACTIVE{UI.RESET}" if idx == active_idx else f"{UI.DIM}○ IDLE  {UI.RESET}"
+        star = "*" if idx == active_idx else " "
         email = acc.get("email", "Unknown")
         project_id = acc.get("projectId") or "<none>"
-        print(f"{is_active} [{idx}] Email: {email} | Project: {project_id}")
-    print("=" * 60)
+        print(f"{star} [{idx}] {is_active} | {UI.BOLD}{email:<28}{UI.RESET} | Project: {UI.CYAN}{project_id}{UI.RESET}")
+    print(f"{UI.DIM}{'═' * 68}{UI.RESET}")
 
 
 def delete_account(email_or_index: str) -> bool:
@@ -898,18 +900,19 @@ def check_quotas_and_verify():
 
 
 def interactive_accounts_menu():
+    from .ui import UI
     while True:
         try:
-            print("\n--- Google Antigravity Accounts Console ---")
-            print("1. List accounts")
-            print("2. Add new account (Login)")
-            print("3. Set active account")
-            print("4. Delete account")
-            print("5. Verify accounts & status")
-            print("6. Set account project ID")
-            print("7. Exit")
+            print(f"\n{UI.BOLD}{UI.BRIGHT_CYAN}─── Google Antigravity Accounts Console ───{UI.RESET}")
+            print(f" {UI.CYAN}1.{UI.RESET} List accounts")
+            print(f" {UI.CYAN}2.{UI.RESET} Add new account (Login)")
+            print(f" {UI.CYAN}3.{UI.RESET} Set active account")
+            print(f" {UI.CYAN}4.{UI.RESET} Delete account")
+            print(f" {UI.CYAN}5.{UI.RESET} Verify accounts & status")
+            print(f" {UI.CYAN}6.{UI.RESET} Set account project ID")
+            print(f" {UI.CYAN}7.{UI.RESET} Exit")
             
-            choice = input("\nSelect an option [1-7]: ").strip()
+            choice = input(f"\n{UI.BOLD}Select an option [1-7]:{UI.RESET} ").strip()
             if not choice:
                 continue
 
@@ -1232,25 +1235,32 @@ def show_dynamic_models(include_all: bool = False) -> bool:
     agent_sorts = data.get("agentModelSorts")
     groups = group_antigravity_catalog(models, include_all=include_all, agent_model_sorts=agent_sorts)
 
+    from .ui import UI
     if not include_all:
-        print(f"\nAvailable Antigravity Models ({len(groups)} public models found):")
-        print("=" * 120)
-        print(f"{'Model ID':<24} {'Name':<32} {'Thinking Levels':<20} {'Context':<9} {'Max Out':<9} {'Quota':<10} {'Reset':<10}")
-        print("-" * 120)
+        print(f"\n{UI.BOLD}{UI.BRIGHT_CYAN}Available Antigravity Models ({len(groups)} public models found):{UI.RESET}")
+        print(f"{UI.DIM}{'═' * 115}{UI.RESET}")
+        print(f"{UI.BOLD}{'Model ID':<24} {'Name':<32} {'Thinking Levels':<18} {'Context':<9} {'Max Out':<9} {'Quota':<10} {'Reset':<10}{UI.RESET}")
+        print(f"{UI.DIM}{'─' * 115}{UI.RESET}")
         for g in groups:
-            rem_str = f"{round(g.remaining_fraction * 100, 1)}%" if g.remaining_fraction is not None else "n/a"
+            if g.remaining_fraction is not None:
+                rem_pct = round(g.remaining_fraction * 100, 1)
+                color = UI.BRIGHT_GREEN if g.remaining_fraction > 0.4 else (UI.BRIGHT_YELLOW if g.remaining_fraction > 0.15 else UI.RED)
+                rem_str = f"{color}{rem_pct}%{UI.RESET}"
+            else:
+                rem_str = f"{UI.DIM}n/a{UI.RESET}"
             reset_str = format_reset_time(g.reset_time)
-            ctx_str = f"{g.context_window // 1000}k" if g.context_window < 1_000_000 else f"{g.context_window // 1_000_000}M"
+            reset_display = f"{UI.YELLOW}{reset_str}{UI.RESET}" if reset_str != "-" else f"{UI.DIM}-{UI.RESET}"
+            ctx_str = f"{UI.CYAN}{g.context_window // 1000}k{UI.RESET}" if g.context_window < 1_000_000 else f"{UI.BRIGHT_MAGENTA}{g.context_window // 1_000_000}M{UI.RESET}"
             mot_str = f"{g.max_output_tokens:,}"
             levels_str = g.get_thinking_levels_str()
-            print(f"{g.public_id:<24} {g.display_name:<32} {levels_str:<20} {ctx_str:<9} {mot_str:<9} {rem_str:<10} {reset_str:<10}")
-        print("=" * 120)
-        print("Tip: Use 'hermes agy models --all' to inspect raw backend runtime IDs.")
+            print(f"{UI.BOLD}{g.public_id:<24}{UI.RESET} {g.display_name:<32} {levels_str:<18} {ctx_str:<18} {mot_str:<9} {rem_str:<19} {reset_display}")
+        print(f"{UI.DIM}{'═' * 115}{UI.RESET}")
+        print(f"{UI.DIM}Tip: Use 'hermes agy models --all' to inspect raw backend runtime IDs.{UI.RESET}")
     else:
-        print(f"\nRaw Runtime Antigravity Models ({len(models)} entries):")
-        print("=" * 90)
-        print(f"{'Runtime ID':<35} {'Display Name':<28} {'Remaining':<12} {'Reset':<10}")
-        print("-" * 90)
+        print(f"\n{UI.BOLD}{UI.BRIGHT_CYAN}Raw Runtime Antigravity Models ({len(models)} entries):{UI.RESET}")
+        print(f"{UI.DIM}{'═' * 90}{UI.RESET}")
+        print(f"{UI.BOLD}{'Runtime ID':<35} {'Display Name':<28} {'Remaining':<12} {'Reset':<10}{UI.RESET}")
+        print(f"{UI.DIM}{'─' * 90}{UI.RESET}")
         for mid, info in sorted(models.items()):
             if not isinstance(info, dict):
                 continue
@@ -1260,9 +1270,9 @@ def show_dynamic_models(include_all: bool = False) -> bool:
             rem_str = f"{round(rem_frac * 100, 1)}%" if rem_frac is not None else "n/a"
             reset_time = format_reset_time(quota_info.get("resetTime"))
             print(f"{mid:<35} {str(display_name)[:27]:<28} {rem_str:<12} {reset_time:<10}")
-        print("=" * 90)
+        print(f"{UI.DIM}{'═' * 90}{UI.RESET}")
 
-    print(f"Endpoint: {data.get('endpoint')}")
+    print(f"{UI.DIM}Endpoint: {data.get('endpoint')}{UI.RESET}")
     return True
 
 
@@ -1274,12 +1284,13 @@ def show_user_usage() -> bool:
         print(f"Error: {exc}")
         return False
 
-    print(f"\nFetching live usage for {email}...")
+    from .ui import UI
+    print(f"\n{UI.DIM}Fetching live usage for {UI.RESET}{UI.BOLD}{email}{UI.RESET}...")
     from .discovery import fetch_user_quota_summary, format_reset_time
     try:
         summary = fetch_user_quota_summary(access_token, project_id)
     except Exception as exc:
-        print(f"Error fetching usage: {exc}")
+        print(f"{UI.error(f'Error fetching usage: {exc}')}")
         return False
 
     groups = summary.get("groups") or []
@@ -1287,31 +1298,26 @@ def show_user_usage() -> bool:
         print("No quota groups reported by Antigravity API.")
         return True
 
-    print(f"\nAntigravity Shared Quota Pools for {email}:")
-    print("=" * 70)
+    print(f"\n{UI.BOLD}{UI.BRIGHT_CYAN}Antigravity Shared Quota Pools for {email}:{UI.RESET}")
+    print(f"{UI.DIM}{'═' * 76}{UI.RESET}")
     for g in groups:
         if not isinstance(g, dict):
             continue
         g_name = g.get("displayName") or "Quota Group"
-        print(f"\n• {g_name}:")
+        print(f"\n  {UI.BOLD}✦ {g_name}{UI.RESET}")
         buckets = g.get("buckets") or []
         for b in buckets:
             if not isinstance(b, dict):
                 continue
             b_name = b.get("displayName") or b.get("bucketId") or "Limit"
             rem = b.get("remainingFraction")
-            if rem is not None and isinstance(rem, (int, float)):
-                rem_pct = round(rem * 100, 1)
-                bar_len = 20
-                filled = int(round(rem * bar_len))
-                bar = f"[{'#' * filled}{'-' * (bar_len - filled)}] {rem_pct:>5.1f}%"
-            else:
-                bar = "[????????????????????]   n/a"
+            bar = UI.progress_bar(rem, width=22)
             reset = format_reset_time(b.get("resetTime"))
-            print(f"  - {b_name:<20} {bar}  (Reset: {reset})")
+            reset_display = f"{UI.DIM}Reset:{UI.RESET} {UI.YELLOW}{reset}{UI.RESET}" if reset != "-" else f"{UI.DIM}Reset: -{UI.RESET}"
+            print(f"    • {b_name:<24} {bar}  ({reset_display})")
 
-    print("\n" + "=" * 70)
-    print(f"Endpoint: {summary.get('endpoint')}")
+    print("\n" + f"{UI.DIM}{'═' * 76}{UI.RESET}")
+    print(f"{UI.DIM}Endpoint: {summary.get('endpoint')}{UI.RESET}")
     return True
 
 
@@ -1345,11 +1351,13 @@ def run_image_generation(prompt: str, ratio: str = "1:1", model: str = "gemini-3
 
 def handle_cli(args):
     try:
-        if args.action == "login":
+        from .ui import UI
+        if not getattr(args, "action", None) or args.action == "accounts":
+            print(UI.banner())
+            interactive_accounts_menu()
+        elif args.action == "login":
             if not run_login_flow(project_id=args.project_id, no_browser=args.no_browser):
                 sys.exit(1)
-        elif args.action == "accounts":
-            interactive_accounts_menu()
         elif args.action == "list":
             list_accounts()
         elif args.action == "models":

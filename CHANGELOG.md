@@ -2,6 +2,11 @@
 
 All notable changes to hermes-antigravity-auth.
 
+## [1.9.5] — 2026-10-23
+
+### Added
+- **Modern Terminal UI Engine**: Added zero-dependency ANSI color and styling subsystem (`antigravity_auth/ui.py`) featuring an ASCII banner, real-time colored progress bars for quota pools, active account badges (`● ACTIVE` / `○ IDLE`), and clean tabular layouts for `hermes agy models`, `usage`, and `accounts`.
+
 ## [1.9.4] — 2026-10-22
 
 ### Added
