@@ -1,0 +1,5 @@
+name: deepseek-web
+kind: model-provider
+version: 2.0.0
+description: DeepSeek Web reverse-engineered provider for Hermes Agent
+author: NoeFabris & Reedtrullz

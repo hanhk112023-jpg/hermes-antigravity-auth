@@ -1,0 +1,5 @@
+name: deepseek-cli
+kind: standalone
+version: 2.0.0
+description: DeepSeek Web account manager, login, and CLI diagnostics
+author: NoeFabris & Reedtrullz
