@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from .interceptor import install as install_interceptor
+from deepseek_auth.interceptor import install as install_interceptor
 
 logger = logging.getLogger(__name__)
 
@@ -61,16 +61,28 @@ class DeepSeekWebProfile(BaseProviderProfile):  # type: ignore
 
 
 DEEPSEEK_PROFILE = DeepSeekWebProfile(
-    name="deepseek-web",
-    display_name="DeepSeek Web to API",
+    name="deepseek",
+    display_name="DeepSeek",
     description="DeepSeek Web backend with automated PoW and session manager",
-    aliases=("deepseek", "deepseek2api", "ds"),
+    aliases=("deepseek-web", "deepseek2api", "ds"),
+    env_vars=("DEEPSEEK_API_KEY", "DEEPSEEK_TOKEN"),
     base_url="https://chat.deepseek.com",
     fallback_models=("deepseek-chat", "deepseek-reasoner"),
     default_aux_model="deepseek-chat",
     default_max_tokens=8192,
 )
 
+def _patch_hermes_picker() -> None:
+    """Ensure deepseek provider models point to deepseek-chat and deepseek-reasoner."""
+    try:
+        from hermes_cli.models_catalog_static import _PROVIDER_MODELS
+        _PROVIDER_MODELS["deepseek"] = ["deepseek-chat", "deepseek-reasoner"]
+        _PROVIDER_MODELS["deepseek-web"] = ["deepseek-chat", "deepseek-reasoner"]
+    except Exception as exc:
+        logger.debug("Failed to patch _PROVIDER_MODELS: %s", exc)
+
+
 register_provider(DEEPSEEK_PROFILE)
+_patch_hermes_picker()
 
 __all__ = ["DeepSeekWebProfile", "DEEPSEEK_PROFILE"]

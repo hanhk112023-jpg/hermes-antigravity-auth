@@ -44,6 +44,39 @@ def save_accounts(data: dict[str, Any]) -> None:
         logger.error("Failed to save accounts to %s: %s", DEEPSEEK_ACCOUNTS_FILE, exc)
 
 
+def sync_token_to_hermes_auth(token: str) -> None:
+    """Sync DeepSeek token to Hermes ~/.hermes/auth.json under deepseek and deepseek-web."""
+    auth_file = Path.home() / ".hermes" / "auth.json"
+    if not auth_file.exists():
+        data = {"version": 1, "providers": {}}
+    else:
+        try:
+            with open(auth_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                data = {"version": 1, "providers": {}}
+        except Exception:
+            data = {"version": 1, "providers": {}}
+    try:
+        providers = data.setdefault("providers", {})
+        providers["deepseek"] = {"token": token, "api_key": token}
+        providers["deepseek-web"] = {"token": token, "api_key": token}
+        # Also set env var for current session
+        os.environ["DEEPSEEK_API_KEY"] = token
+        os.environ["DEEPSEEK_TOKEN"] = token
+        temp_file = auth_file.with_suffix(".tmp")
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(temp_file, auth_file)
+        try:
+            os.chmod(auth_file, 0o600)
+        except OSError:
+            pass
+        logger.info("Successfully synced DeepSeek token to Hermes auth.json")
+    except Exception as exc:
+        logger.warning("Failed to sync token to auth.json: %s", exc)
+
+
 def add_or_update_account(
     identifier: str,
     token: str,
@@ -86,6 +119,7 @@ def add_or_update_account(
             "enabled": True,
         })
     save_accounts(data)
+    sync_token_to_hermes_auth(token)
 
 
 def get_active_account() -> dict[str, Any] | None:

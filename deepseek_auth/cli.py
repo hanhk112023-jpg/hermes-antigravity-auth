@@ -28,7 +28,10 @@ def cmd_set_token(args: Any) -> None:
 
     name = args.name or "UserToken"
     add_or_update_account(name, token)
-    print(f"{UI.GREEN}✓ Successfully saved userToken for [{name}]!{UI.RESET}\n")
+    print(f"{UI.GREEN}✓ Successfully saved userToken for [{name}]!{UI.RESET}")
+    print(f"{UI.BRIGHT_CYAN}✓ Synced to Hermes credentials (provider: deepseek).{UI.RESET}\n")
+    print(f"{UI.DIM}Tip: You can now switch model via 'hermes model' or run:{UI.RESET}")
+    print(f"  hermes -z \"Hello\" --provider deepseek --model deepseek-chat\n")
 
 
 def cmd_login(args: Any) -> None:

@@ -27,14 +27,19 @@ def _is_deepseek_provider_name(value: Any) -> bool:
     }
 
 
+def _is_deepseek_endpoint(base_url: str) -> bool:
+    b = str(base_url or "").strip().lower()
+    return "chat.deepseek.com" in b or "api.deepseek.com" in b
+
+
 def _deepseek_runtime(requested: Any = None) -> dict[str, Any]:
     return {
-        "provider": "deepseek-web",
+        "provider": "deepseek",
         "api_mode": "chat_completions",
         "base_url": "https://chat.deepseek.com",
         "api_key": "deepseek-web-auth",
         "source": "deepseek-auth-store",
-        "requested_provider": str(requested or "deepseek-web"),
+        "requested_provider": str(requested or "deepseek"),
     }
 
 
@@ -91,7 +96,7 @@ def install() -> bool:
         except Exception:
             base_url = ""
 
-        if _is_deepseek_provider_name(provider) or "chat.deepseek.com" in base_url:
+        if _is_deepseek_provider_name(provider) or _is_deepseek_endpoint(base_url):
             return DeepSeekWebClient(**(client_kwargs or {}))
         return _ORIGINAL_CREATE_OPENAI_CLIENT(*args, **kwargs)
 
